@@ -134,6 +134,10 @@ def main():
 
     go_ahead = False
 
+    print("Ensure that you have safijari.github.io/threeviz open in chrome")
+    print("and see if a maze shows up (if not just hit n and enter).")
+    print("Cycle through the mazes until a viable one shows up and then enter y to continue.")
+
     while not go_ahead:
         m = make_test_maze(s)
         m.visualize()
@@ -175,9 +179,6 @@ def main():
             st1 = m.state_for_agent(m.mousy)
 
             q.update(st, at, rt, st1)
-
-            # m.visualize()
-            # time.sleep(0.001)
 
         print(f"finished episode with final score of {final_score} and in {itr} iterations")
 
