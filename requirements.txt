@@ -1,2 +1,6 @@
 threeviz
 numpy
+tensorflow
+torch
+opencv-python
+matplotlib
