@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from collections import namedtuple
 from dataclasses import dataclass
@@ -177,7 +178,7 @@ def make_test_maze(s=4):
     # seed(time.time())
     return m
 
-def run_episode(m, model, eps, memory, verbose=False):
+def run_episode(m, model, eps, memory, verbose=False, max_steps=None):
     # if not memory:
     #     memory = []
     m.reset()
@@ -189,6 +190,8 @@ def run_episode(m, model, eps, memory, verbose=False):
 
     while not m.has_ended(): # and not m.has_died():
         itr += 1
+        if max_steps and itr > max_steps:
+            return memory
         # if random.random() > anneal_probability(i, max_episodes, switch_episodes, 0.5) or i < switch_episodes:
         if random.random() < eps:
             idx = random.randint(0, 3)
@@ -211,19 +214,27 @@ def run_episode(m, model, eps, memory, verbose=False):
     # print(f"finished episode with final score of {final_score} and in {itr} iterations")
     return memory
 
-def main(fw):
-    side_len = 5
-
+def main(experiment_name, fw, starting_weights=None):
+    # side_len = 5
+    folder = f'models/{experiment_name}'
+    if not os.path.exists(folder):
+        os.makedirs(folder)
     g = 0.95
-    mem_size = 20000
-    batch_size=128
+    mem_size = 50000
+    batch_size = 128
     # memory = deque(maxlen=1000)
 
-    model = create_maze_solving_network()
-    target_model = create_maze_solving_network()
-    target_model.set_weights(model.get_weights())
-    train_model = add_rl_loss_to_network(model)
+    if not starting_weights:
+        model = create_maze_solving_network()
+        target_model = create_maze_solving_network()
+        target_model.set_weights(model.get_weights())
+        starting_episode = 0
+    else:
+        model = tf.keras.models.load_model(starting_weights)
+        target_model = tf.keras.models.load_model(starting_weights)
+        starting_episode = int(os.path.splitext(os.path.basename(starting_weights))[0])
 
+    train_model = add_rl_loss_to_network(model)
     eps = 1.0
     decay_factor = 0.9999
 
@@ -234,12 +245,15 @@ def main(fw):
 
     print("bootstrapping")
     while len(memory) < mem_size:
+        side_len = random.randint(3, 6)
         m = make_test_maze(side_len)
         run_episode(m, target_model, eps, memory, False)
     print("done bootstrapping")
 
-    for i in range(100000):
+    for i in range(starting_episode, 1000000):
+        side_len = random.randint(3, 6)
         m = make_test_maze(side_len)
+        m.randomize_agent()
         run_episode(m, target_model, eps, memory, False)
 
         steps = random.sample(memory, min(batch_size, len(memory)))
@@ -280,8 +294,10 @@ def main(fw):
             tbwrite(k, v[0], i)
 
         if i % 50 == 0:
+            side_len = random.randint(3, 6)
+            m = make_test_maze(side_len)
             transfer_weights_partially(model, target_model, 1)
-            m.reset()
+            target_model.save(f'{folder}/{i}.h5')
             m.visualize()
             idx = 0
             score = 0
@@ -294,28 +310,20 @@ def main(fw):
                 if idx > 20:
                     break
             tbwrite('test_score', score, i)
-        dones = [m.done for m in memory if m.done][-10:]
+        dones = [m.done for m in memory if m.done][-100:]
         tbwrite('mean_score', sum(dones)/len(dones), i)
 
-def vis_tests():
-    m = make_test_maze(8)
-    im = m.to_image(256)
-    cv2.imwrite('/home/jack/test.jpg', im)
-    m.visualize()
-
-    while True:
-        idx = predict_on_model(im, model)
-        print(m.apply_action(idx))
-        im = m.to_image(256)
-        cv2.imwrite('/home/jack/test.jpg', im)
-        m.visualize()
-        time.sleep(0.1)
-
-def main_wrapper(experiment_name):
+def run_training(experiment_name, starting_weights=None):
     logdir = "logs/scalars/" + experiment_name
     file_writer = tf.summary.create_file_writer(logdir + "/metrics")
     file_writer.set_as_default()
-    main(file_writer)
+    main(experiment_name, file_writer, starting_weights)
+
+def run_test(weights_path, side_len=4):
+    model = tf.keras.models.load_model(weights_path)
+    while True:
+        m = make_test_maze(side_len)
+        run_episode(m, model, 0, [], True, max_steps=25)
 
 if __name__ == '__main__':
-    argh.dispatch_command(main_wrapper)
+    argh.dispatch_commands([run_training, run_test])
