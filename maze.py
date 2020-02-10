@@ -7,8 +7,10 @@ import random
 from threeviz.api import plot_3d, plot_pose, plot_line_seg
 import cv2
 from random import seed
-from maze_nn import create_maze_solving_network, predict_on_model, preprocess_image
+from maze_nn import create_maze_solving_network, predict_on_model, preprocess_image, transfer_weights_partially, add_rl_loss_to_network
 from collections import deque
+import tensorflow as tf
+import argh
 
 """
 - States
@@ -69,6 +71,13 @@ class Maze:
         self.env = np.zeros((rows, columns))
         self.mousy = Agent(0, 0)
 
+    def randomize_agent(self):
+        X, Y = np.where(self.env == 0)
+        i = random.randint(0, len(X)-1)
+        # return X[i], Y[i]
+        self.mousy.i = X[i]
+        self.mousy.j = Y[i]
+
     def reset(self):
         self.mousy.i = 0
         self.mousy.j = 0
@@ -97,12 +106,11 @@ class Maze:
         moves = self.all_actions
         assert idx >= 0 and idx < len(moves), f"Index {idx} is not valid for picking a move"
         move = moves[idx]
-        score = -0.1
-        win_score = 100
-        death_score = -10
-        wall_score = -0.5
+        score = -0.01
+        win_score = 1
+        death_score = -1
         if not self.is_valid_new_agent(move):
-            return -0.5, False
+            return score, False
         self.do_a_move(move)
         if self.has_won():
             return win_score, True
@@ -155,7 +163,7 @@ def get_midpoint_for_loc(i, j):
     return i + 0.5, j + 0.5
 
 def make_test_maze(s=4):
-    seed(9001)
+    # seed(9001)
     m = Maze(s,s)
     e = m.env
     h, w = e.shape
@@ -166,13 +174,14 @@ def make_test_maze(s=4):
                 continue
             if random.random() < 0.3:
                 e[i, j] = -1
-    seed(time.time())
+    # seed(time.time())
     return m
 
 def run_episode(m, model, eps, memory, verbose=False):
     # if not memory:
     #     memory = []
     m.reset()
+    # m.randomize_agent()
     final_score = 0
 
     itr = 0
@@ -196,64 +205,97 @@ def run_episode(m, model, eps, memory, verbose=False):
             m.visualize()
             time.sleep(0.05)
 
-        done = m.has_ended()
+        done = final_score if m.has_ended() else 0
         memory.append(SingleStep(st=state, stn=next_state, rt=rt, at=at, done=done))
 
-    print(f"finished episode with final score of {final_score} and in {itr} iterations")
+    # print(f"finished episode with final score of {final_score} and in {itr} iterations")
     return memory
 
-def main():
+def main(fw):
+    side_len = 5
+
     g = 0.95
-    memory = deque(maxlen=10000)
+    mem_size = 20000
+    batch_size=128
+    # memory = deque(maxlen=1000)
 
     model = create_maze_solving_network()
+    target_model = create_maze_solving_network()
+    target_model.set_weights(model.get_weights())
+    train_model = add_rl_loss_to_network(model)
 
-    s = 6
+    eps = 1.0
+    decay_factor = 0.9999
 
-    m = make_test_maze(s)
+    memory = deque(maxlen=mem_size)
 
-    eps = 0.5
-    decay_factor = 0.999
+    def tbwrite(name, data, step):
+        tf.summary.scalar(name, data=data, step=step)
 
-    for i in range(1000000):
+    print("bootstrapping")
+    while len(memory) < mem_size:
+        m = make_test_maze(side_len)
+        run_episode(m, target_model, eps, memory, False)
+    print("done bootstrapping")
 
-        for i in range(10):
-            run_episode(m, model, eps, memory, False)
-        if len(memory) < 500:
-            continue
+    for i in range(100000):
+        m = make_test_maze(side_len)
+        run_episode(m, target_model, eps, memory, False)
 
-        steps = random.sample(memory, min(256, len(memory)))
+        steps = random.sample(memory, min(batch_size, len(memory)))
 
         inputs = []
         outputs = []
+        masks = []
 
-        for s in steps:
+        target_vectors = model.predict(np.stack([s.st for s in steps], 0)/255.0)
+        fut_actions = target_model.predict(np.stack([s.stn for s in steps], 0)/255.0)
+
+        for j, s in enumerate(steps):
             x = s.st
             r = s.rt
-            target_vector = predict_on_model(s.stn, model, True)
+            # target_vector = predict_on_model(s.st, model, True)
+            # fut_action = predict_on_model(s.stn, target_model, True)
+            target_vector, fut_action = target_vectors[j].copy(), fut_actions[j].copy()
+            target = r
             if not s.done:
-                target = r + g * np.max(target_vector)
-            else:
-                target = r
+                target += g * np.max(fut_action)
             target_vector[s.at] = target
+            mask = target_vector.copy()*0
+            mask[s.at] = 1
 
             inputs.append(preprocess_image(x, expand=False))
             outputs.append(target_vector)
+            masks.append(mask)
 
-        model.fit(np.stack(inputs, 0), np.stack(outputs, 0), epochs=1)
+        # model.fit(np.stack(inputs, 0), np.stack(outputs, 0), epochs=1)
+        targets = np.stack(outputs, 0)
+        masks = np.stack(masks, 0)
+        hist = train_model.fit([np.stack(inputs, 0), targets, masks],
+                               targets, epochs=1)
+        tbwrite('eps', eps, i)
+        eps *= decay_factor
+        eps = max(eps, 0.1)
+        for k, v in hist.history.items():
+            tbwrite(k, v[0], i)
 
-        # eps *= decay_factor
-
-        m.reset()
-        m.visualize()
-        idx = 0
-        while not m.has_ended():
-            time.sleep(0.1)
-            m.apply_action(predict_on_model(m.to_image(64), model, False))
+        if i % 50 == 0:
+            transfer_weights_partially(model, target_model, 1)
+            m.reset()
             m.visualize()
-            idx += 1
-            if idx > 20:
-                break
+            idx = 0
+            score = 0
+            while not m.has_ended():
+                time.sleep(0.1)
+                _score, _ = m.apply_action(predict_on_model(m.to_image(64), target_model, False))
+                score += _score
+                m.visualize()
+                idx += 1
+                if idx > 20:
+                    break
+            tbwrite('test_score', score, i)
+        dones = [m.done for m in memory if m.done][-10:]
+        tbwrite('mean_score', sum(dones)/len(dones), i)
 
 def vis_tests():
     m = make_test_maze(8)
@@ -269,6 +311,11 @@ def vis_tests():
         m.visualize()
         time.sleep(0.1)
 
+def main_wrapper(experiment_name):
+    logdir = "logs/scalars/" + experiment_name
+    file_writer = tf.summary.create_file_writer(logdir + "/metrics")
+    file_writer.set_as_default()
+    main(file_writer)
+
 if __name__ == '__main__':
-    main()
-    # vis_tests()
+    argh.dispatch_command(main_wrapper)
