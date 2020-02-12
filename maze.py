@@ -186,22 +186,26 @@ def run_episode(m, model, eps, memory, verbose=False, max_steps=None):
     final_score = 0
 
     itr = 0
-    agents = []
+
+    rolling_state_buffer = deque(maxlen=4)
+    for i in range(4):
+        rolling_state_buffer.append(m.to_image())
 
     while not m.has_ended(): # and not m.has_died():
         itr += 1
         if max_steps and itr > max_steps:
             return memory
-        # if random.random() > anneal_probability(i, max_episodes, switch_episodes, 0.5) or i < switch_episodes:
+
+        state = np.dstack(rolling_state_buffer)
         if random.random() < eps:
             idx = random.randint(0, 3)
         else:
-            idx = predict_on_model(m.to_image(), model, False)
+            idx = predict_on_model(state, model, False)
 
         at = idx
-        state = m.to_image(64)
         rt, _ = m.apply_action(at)
-        next_state = m.to_image(64)
+        rolling_state_buffer.append(m.to_image())
+        next_state = np.dstack(rolling_state_buffer)
         final_score += rt
 
         if verbose:
@@ -221,7 +225,7 @@ def main(experiment_name, fw, starting_weights=None):
         os.makedirs(folder)
     g = 0.95
     mem_size = 50000
-    batch_size = 128
+    batch_size = 512
     # memory = deque(maxlen=1000)
 
     if not starting_weights:
@@ -301,9 +305,13 @@ def main(experiment_name, fw, starting_weights=None):
             m.visualize()
             idx = 0
             score = 0
+            state_buffer = deque(maxlen=4)
+            for k in range(4):
+                state_buffer.append(m.to_image())
             while not m.has_ended():
                 time.sleep(0.1)
-                _score, _ = m.apply_action(predict_on_model(m.to_image(64), target_model, False))
+                _score, _ = m.apply_action(predict_on_model(np.dstack(state_buffer), target_model, False))
+                state_buffer.append(m.to_image())
                 score += _score
                 m.visualize()
                 idx += 1
