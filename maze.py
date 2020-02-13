@@ -1,4 +1,5 @@
 import os
+import cv2
 import numpy as np
 from collections import namedtuple
 from dataclasses import dataclass
@@ -8,10 +9,11 @@ import random
 from threeviz.api import plot_3d, plot_pose, plot_line_seg
 import cv2
 from random import seed
-from maze_nn import create_maze_solving_network, predict_on_model, preprocess_image, transfer_weights_partially, add_rl_loss_to_network
+from maze_nn import create_maze_solving_network, predict_on_model, preprocess_image, transfer_weights_partially, add_rl_loss_to_network, make_intermediate_models
 from collections import deque
 import tensorflow as tf
 import argh
+import tensorflow.keras as kr
 
 """
 - States
@@ -222,6 +224,7 @@ def main(experiment_name, fw, starting_weights=None):
     g = 0.95
     mem_size = 50000
     batch_size = 128
+    side_len = 6
     # memory = deque(maxlen=1000)
 
     if not starting_weights:
@@ -325,5 +328,20 @@ def run_test(weights_path, side_len=4):
         m = make_test_maze(side_len)
         run_episode(m, model, 0, [], True, max_steps=25)
 
+def rescale_image(im):
+    im = (im - im.min())
+    im = im/im.max()*255
+    return im.astype('uint8')
+
 if __name__ == '__main__':
     argh.dispatch_commands([run_training, run_test])
+    # m = kr.models.load_model('models/my_model_64_img_50iter_weight_transfer_with_obstacles_3x3to5x5_randomized_128_batch/40000.h5')
+    # models = make_intermediate_models(m)
+    # m = make_test_maze(5)
+    # im = preprocess_image(m.to_image(64))
+    # cv2.imwrite('/tmp/start_image.jpg', rescale_image(im[0, :, :, :]))
+
+    # res = [model.predict(im) for model in models]
+    # for ii, r in enumerate(res):
+    #     for i in range(r.shape[-1]):
+    #         cv2.imwrite(f'/tmp/layer{ii + 1}_{i}.jpg', rescale_image(r[0, :, :, i]))
