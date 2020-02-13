@@ -44,11 +44,13 @@ def create_maze_solving_network(image_size=64, num_actions=4):
 
     return model
 
+
 def masked_mse(args):
     y_true, y_pred, mask = args
     loss = (y_true - y_pred)**2
     loss *= mask
     return K.sum(loss, axis=-1)
+
 
 def add_rl_loss_to_network(model):
     num_actions = model.output.shape[1]
@@ -61,6 +63,7 @@ def add_rl_loss_to_network(model):
     trainable_model.compile(optimizer=Adam(), loss=lambda yt, yp: yp)
     return trainable_model
 
+
 def transfer_weights_partially(source, target, lr=0.5):
     wts = source.get_weights()
     twts = target.get_weights()
@@ -69,10 +72,9 @@ def transfer_weights_partially(source, target, lr=0.5):
         twts[i] = lr * wts[i] + (1-lr) * twts[i]
     target.set_weights(twts)
 
-if __name__ == '__main__':
-    model = create_maze_solving_network()
-    # print(model.summary())
-    # im = cv2.imread('/home/jack/test.jpg')
 
-    # print(predict_on_model(im, model))
-    add_rl_loss_to_network(model)
+def make_intermediate_models(model):
+    names = ['conv2d_3', 'conv2d_4', 'conv2d_5']
+    return [kr.models.Model(inputs=model.input, outputs=model.get_layer(name).output)
+            for name in names]
+
