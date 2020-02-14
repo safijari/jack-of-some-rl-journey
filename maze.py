@@ -9,11 +9,12 @@ import random
 from threeviz.api import plot_3d, plot_pose, plot_line_seg
 import cv2
 from random import seed
-from maze_nn import create_maze_solving_network, predict_on_model, preprocess_image, transfer_weights_partially, add_rl_loss_to_network, make_intermediate_models
+from maze_nn import create_maze_solving_network, predict_on_model, preprocess_image, transfer_weights_partially, add_rl_loss_to_network, make_intermediate_models, visualize_network_forward_pass
 from collections import deque
 import tensorflow as tf
 import argh
 import tensorflow.keras as kr
+from PIL import Image, ImageSequence
 
 """
 - States
@@ -328,20 +329,40 @@ def run_test(weights_path, side_len=4):
         m = make_test_maze(side_len)
         run_episode(m, model, 0, [], True, max_steps=25)
 
-def rescale_image(im):
-    im = (im - im.min())
-    im = im/im.max()*255
-    return im.astype('uint8')
-
 if __name__ == '__main__':
-    argh.dispatch_commands([run_training, run_test])
-    # m = kr.models.load_model('models/my_model_64_img_50iter_weight_transfer_with_obstacles_3x3to5x5_randomized_128_batch/40000.h5')
-    # models = make_intermediate_models(m)
-    # m = make_test_maze(5)
-    # im = preprocess_image(m.to_image(64))
-    # cv2.imwrite('/tmp/start_image.jpg', rescale_image(im[0, :, :, :]))
+    # argh.dispatch_commands([run_training, run_test])
 
-    # res = [model.predict(im) for model in models]
-    # for ii, r in enumerate(res):
-    #     for i in range(r.shape[-1]):
-    #         cv2.imwrite(f'/tmp/layer{ii + 1}_{i}.jpg', rescale_image(r[0, :, :, i]))
+    got_one = False
+    model = kr.models.load_model('models/my_model_64_img_50iter_weight_transfer_with_obstacles_3x3to5x5_randomized_128_batch/40000.h5')
+
+    while not got_one:
+        m = make_test_maze(6)
+        moves = 0
+        while not m.has_ended():
+            moves += 1
+            if moves > 20:
+                break
+            m.apply_action(predict_on_model(m.to_image(), model, False))
+        if m.has_won():
+            got_one = True
+
+    m.reset()
+    moves = 0
+    images = []
+    im = visualize_network_forward_pass(model, m.to_image(), predict_on_model(m.to_image(), model, False))
+    # cv2.imwrite(f'/tmp/test_{moves}.png', im)
+    images.append(im)
+    while not m.has_ended():
+        moves += 1
+        if moves > 20:
+            break
+
+        m.apply_action(predict_on_model(m.to_image(), model, False))
+        im = visualize_network_forward_pass(model, m.to_image(), predict_on_model(m.to_image(), model, False))
+        images.append(im)
+        # cv2.imwrite(f'/tmp/test_{moves}.png', im)
+
+    first_im = images[0]
+    first_im.save('/tmp/test.gif', format='GIF', save_all=True,
+                  append_images=images[1:],
+                  loop=0, duration=5, optimize=False, transparency=255)

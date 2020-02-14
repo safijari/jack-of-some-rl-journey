@@ -5,6 +5,8 @@ import numpy as np
 from tensorflow.keras.layers import Conv2D, Flatten, Dense, MaxPooling2D, Input, Lambda
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.models import Model
+from PIL import Image
+import PIL
 
 # Ref https://towardsdatascience.com/deep-reinforcement-learning-tutorial-with-open-ai-gym-c0de4471f368
 
@@ -73,8 +75,61 @@ def transfer_weights_partially(source, target, lr=0.5):
     target.set_weights(twts)
 
 
-def make_intermediate_models(model):
-    names = ['conv2d_3', 'conv2d_4', 'conv2d_5']
+def make_intermediate_models(model, layer_names):
     return [kr.models.Model(inputs=model.input, outputs=model.get_layer(name).output)
-            for name in names]
+            for name in layer_names]
+
+def visualize_network_forward_pass(model, im_in, action):
+    models = make_intermediate_models(model, layer_names = ['conv2d_3', 'conv2d_4', 'conv2d_5'])
+    im = preprocess_image(im_in)
+    res = [model.predict(im) for model in models]
+
+    final_ims = []
+
+    for ii, r in enumerate(res):
+        sub_images = []
+        grid_side_len = int(np.sqrt(r.shape[-1]))
+        assert grid_side_len**2 == r.shape[-1], 'Grid is not square, not sure what to do'
+
+        for i in range(r.shape[-1]):
+            sub_images.append(rescale_image(r[0, :, :, i]))
+
+        s, _ = sub_images[0].shape[:2]
+
+        p = s // 8
+
+        final_image = np.zeros((s*grid_side_len + (p * grid_side_len),
+                                s*grid_side_len + (p * grid_side_len)), 'uint8')
+        final_image = np.dstack((final_image, final_image, final_image, final_image))
+
+        for i, sub_im in enumerate(sub_images):
+            x = (i//grid_side_len)*(s + p)
+            y = (i % grid_side_len)*(s + p)
+            final_image[x:x+s, y:y+s, :3] = cv2.cvtColor(sub_im.copy(), cv2.COLOR_GRAY2BGR)
+            final_image[x:x+s, y:y+s, -1] = 255
+
+        final_ims.append(cv2.resize(final_image, (128, 128)))
+    cw, ch = 400, 160
+    canvas = Image.new(mode='RGBA', size=(cw, ch))
+
+    canvas.paste(Image.fromarray(cv2.cvtColor(im_in, cv2.COLOR_BGR2RGBA)), (10, 10))
+    canvas.paste(Image.fromarray(final_ims[0]), (100, 10))
+    canvas.paste(Image.fromarray(final_ims[1]), (250, 10))
+    canvas = canvas.resize((cw*4, ch*4), Image.NEAREST)
+    am = {
+        0: 'down',
+        1: 'up',
+        3: 'left',
+        2: 'right'
+    }
+    im = np.array(Image.open(f'{am[action]}.png').resize((280, 70)))
+    # im = cv2.cvtColor(im, cv2.COLOR_BGRA2RGBA)
+    canvas.paste(Image.fromarray(im), (40, 390))
+
+    return canvas
+
+def rescale_image(im):
+    im = (im - im.min())
+    im = im/im.max()*255
+    return im.astype('uint8')
 
