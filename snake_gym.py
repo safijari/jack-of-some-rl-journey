@@ -26,9 +26,10 @@ action_map = {
 
 
 reward_map = {
-    SnakeState.OK: -0.0001,
+    SnakeState.OK: -0.1,
     SnakeState.ATE: 1,
-    SnakeState.DED: -1
+    SnakeState.DED: -1,
+    SnakeState.WON: 1
 }
 
 
@@ -45,15 +46,28 @@ class SnakeEnv(gym.Env):
 
     def step(self, action):
         enum = self.env.update(action_map[action])
-        return self.env.to_image(), reward_map[enum], (enum == SnakeState.DED), {}
+        return self.env.to_image(), reward_map[enum], (enum in [SnakeState.DED, SnakeState.WON]), {}
 
     def reset(self):
         self.env.reset()
+        return self.env.to_image()
 
     def render(self, mode='human', close=False):
-        im = self.env.to_image()[:, :, ::-1]
+        im = self.env.to_image()
         if mode == 'human':
-            return im
+            from gym.envs.classic_control import rendering
+            if self.viewer is None:
+                self.viewer = rendering.SimpleImageViewer(maxwidth=640)
+                self.viewer.height = 640
+                self.viewer.width = 640
+
+            im = cv2.resize(im, (640, 640), interpolation=0)
+            im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
+
+            self.viewer.imshow(im)
+            time.sleep(0.1)
+            return self.viewer.isopen
+            # return im
         elif mode == 'jack':
             from gym.envs.classic_control import rendering
             if self.viewer is None:
@@ -64,7 +78,7 @@ class SnakeEnv(gym.Env):
             self.viewer.imshow(cv2.resize(self.env.to_image(), (640, 640), interpolation=0))
             return self.viewer.isopen
         else:
-            return cv2.cvtColor(cv2.cvtColor(cv2.resize(im, (640, 640), interpolation=0), cv2.COLOR_BGR2GRAY), cv2.COLOR_GRAY2BGR)
+            return cv2.cvtColor(cv2.resize(im, (640, 640), interpolation=0), cv2.COLOR_GRAY2BGR)
 
 try:
     gym.envs.register(id="snakenv-v0", entry_point='snake_gym:SnakeEnv')

@@ -1,4 +1,5 @@
 import numpy as np
+import cv2
 from random import choice
 from dataclasses import dataclass
 from enum import Enum
@@ -7,6 +8,7 @@ class SnakeState(Enum):
     OK = 1
     ATE = 2
     DED = 3
+    WON = 4
 
 @dataclass(eq=True, frozen=True)
 class Point:
@@ -54,9 +56,12 @@ class Env:
         if not self._bounds_check(snake.head) or self.snake.self_collision():
             out_enum = SnakeState.DED
         elif snake.head == self.fruit_location:
-            self.set_fruit()
-            self.snake.tail_size += 1
-            out_enum = SnakeState.ATE
+            try:
+                self.set_fruit()
+                self.snake.tail_size += 1
+                out_enum = SnakeState.ATE
+            except IndexError:
+                out_enum = SnakeState.WON
 
         self.snake.shed()
 
@@ -78,17 +83,15 @@ class Env:
 
     def to_image(self):
         snake = self.snake
-        out = np.zeros((self.gs, self.gs, 3), 'uint8') + 100
+        out = np.zeros((self.gs, self.gs, 3), 'uint8')
         fl = self.fruit_loc
         out[fl.y, fl.x] = 255
 
         for s in [snake.head] + snake.tail:
             if self._bounds_check(s):
                 out[s.y, s.x] = 128
-            else:
-                print('Ded?')
 
-        return out
+        return cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)
 
 
 class Snake:
