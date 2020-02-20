@@ -28,6 +28,11 @@ action_dir_map = {
 
 class Env:
     def __init__(self, grid_size=40):
+        self.gs = grid_size
+        self.reset()
+
+    def reset(self):
+        grid_size = self.gs
         self.snake = Snake()
 
         pos_list = []
@@ -36,9 +41,9 @@ class Env:
                 pos_list.append(Point(i, j))
 
         self.pos_set = set(pos_list)
-        self.gs = grid_size
         self.fruit_location = None
         self.set_fruit()
+
 
     def update(self, direction=None):
         snake = self.snake
@@ -46,7 +51,7 @@ class Env:
         self.snake.update()
         out_enum = SnakeState.OK
 
-        if not self._bounds_check(snake.head):
+        if not self._bounds_check(snake.head) or self.snake.self_collision():
             out_enum = SnakeState.DED
         elif snake.head == self.fruit_location:
             self.set_fruit()
@@ -75,10 +80,13 @@ class Env:
         snake = self.snake
         out = np.zeros((self.gs, self.gs, 3), 'uint8') + 100
         fl = self.fruit_loc
-        out[fl.y, fl.x, -1] = 255
+        out[fl.y, fl.x] = 255
 
         for s in [snake.head] + snake.tail:
-            out[s.y, s.x] = 255
+            if self._bounds_check(s):
+                out[s.y, s.x] = 128
+            else:
+                print('Ded?')
 
         return out
 
@@ -89,6 +97,12 @@ class Snake:
         self.tail = []
         self.tail_size = 2
         self.direction = Point(1, 0)  # Need to add validation later
+
+    def self_collision(self):
+        for t in self.tail:
+            if self.head.x == t.x and self.head.y == t.y:
+                return True
+        return False
 
     def update(self):
         new_head = self.head.copy(self.direction.x, self.direction.y)

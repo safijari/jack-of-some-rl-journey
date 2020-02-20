@@ -4,3 +4,5 @@ tensorflow
 torch
 opencv-python
 matplotlib
+gym
+pygame
