@@ -81,15 +81,20 @@ class Env:
     def _bounds_check(self, pos):
         return pos.x >= 0 and pos.x < self.gs and pos.y >= 0 and pos.y < self.gs
 
-    def to_image(self):
+    def to_image(self, gradation=True):
         snake = self.snake
         out = np.zeros((self.gs, self.gs, 3), 'uint8')
         fl = self.fruit_loc
         out[fl.y, fl.x] = 255
 
-        for s in [snake.head] + snake.tail:
+        l = ([snake.head] + snake.tail[::-1])[::-1]
+
+        for i, s in enumerate(l):
             if self._bounds_check(s):
-                out[s.y, s.x] = 128
+                if gradation:
+                    out[s.y, s.x] = 30 + 170.0/len(l)*i
+                else:
+                    out[s.y, s.x] = 128
 
         return cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)
 

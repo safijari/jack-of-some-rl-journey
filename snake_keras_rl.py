@@ -14,6 +14,30 @@ from rl.core import Processor
 from rl.callbacks import FileLogger, ModelIntervalCheckpoint
 from snake_gym import SnakeEnv
 from rl.callbacks import WandbLogger
+# def make_model(shape, num_actions):
+#     model = Sequential()
+#     model.add(Permute((2, 3, 1), input_shape=shape))
+#     model.add(Convolution2D(32, (3, 3), padding='same'))
+#     model.add(Activation('relu'))
+#     model.add(Convolution2D(64, (3, 3), padding='same'))
+#     model.add(Activation('relu'))
+#     model.add(Convolution2D(128, (3, 3), padding='same'))
+#     model.add(MaxPooling2D())
+#     model.add(Activation('relu'))
+#     model.add(Convolution2D(256, (3, 3), padding='same'))
+#     model.add(Activation('relu'))
+#     model.add(Convolution2D(256, (3, 3), padding='same'))
+#     model.add(MaxPooling2D())
+#     model.add(Activation('relu'))
+#     model.add(Flatten())
+#     model.add(Dense(512))
+#     model.add(Activation('relu'))
+#     model.add(Dense(256))
+#     model.add(Activation('relu'))
+#     model.add(Dense(num_actions))
+#     model.add(Activation('linear'))
+#     print(model.summary())
+#     return model
 
 def make_model(shape, num_actions):
     model = Sequential()
@@ -102,7 +126,7 @@ def main(shape=10, winsize=4, test=False, num_max_test=200):
                    train_interval=4,
                    delta_clip=1.)
 
-    dqn.compile(Adam(lr=.0001), metrics=['mae'])
+    dqn.compile(Adam(lr=0.0005), metrics=['mae'])
     weights_filename = 'dqn_snake_weights.h5f'
 
     if not test:
@@ -114,16 +138,19 @@ def main(shape=10, winsize=4, test=False, num_max_test=200):
         callbacks = [ModelIntervalCheckpoint(checkpoint_weights_filename, interval=interval)]
         callbacks += [ModelIntervalCheckpoint(weights_filename, interval=interval)]
         callbacks += [FileLogger(log_filename, interval=500)]
-        dqn.fit(env, callbacks=callbacks, nb_steps=5000000, log_interval=10000, visualize=False)
+        dqn.fit(env, callbacks=callbacks, nb_steps=10000000, log_interval=10000, visualize=False)
 
         # After training is done, we save the final weights one more time.
         # dqn.save_weights(weights_filename, overwrite=True)
 
         # Finally, evaluate our algorithm for 10 episodes.
-        dqn.test(env, nb_episodes=10, visualize=True, nb_max_episode_steps=100)
+        # dqn.test(env, nb_episodes=10, visualize=True, nb_max_episode_steps=100)
     else:
         while True:
-            dqn.load_weights(weights_filename)
+            try:
+                dqn.load_weights(weights_filename)
+            except Exception:
+                print("weights not found, waiting")
             dqn.test(env, nb_episodes=3, visualize=True, nb_max_episode_steps=num_max_test)
             time.sleep(5)
 

@@ -61,6 +61,8 @@ class SnakeEnv(gym.Env):
                 self.viewer.height = 640
                 self.viewer.width = 640
 
+            im = self.env.to_image(True)
+
             im = cv2.resize(im, (640, 640), interpolation=0)
             im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
 
