@@ -26,7 +26,7 @@ action_map = {
 
 
 reward_map = {
-    SnakeState.OK: -0.1,
+    SnakeState.OK: -0.01,
     SnakeState.ATE: 1,
     SnakeState.DED: -1,
     SnakeState.WON: 1
@@ -37,7 +37,7 @@ class SnakeEnv(gym.Env):
     metadata = {'render.modes': ['human', 'rgb_array']}
     def __init__(self):
         super(SnakeEnv, self).__init__()
-        self.env = Env(4)
+        self.env = Env(10)
         self.viewer = None
         self.action_space = spaces.Discrete(5)
         self.observation_space = spaces.Box(
@@ -65,7 +65,7 @@ class SnakeEnv(gym.Env):
             im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
 
             self.viewer.imshow(im)
-            time.sleep(0.1)
+            time.sleep(0.05)
             return self.viewer.isopen
             # return im
         elif mode == 'jack':
