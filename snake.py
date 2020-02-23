@@ -81,7 +81,7 @@ class Env:
     def _bounds_check(self, pos):
         return pos.x >= 0 and pos.x < self.gs and pos.y >= 0 and pos.y < self.gs
 
-    def to_image(self, gradation=True):
+    def to_image(self, gradation=False):
         snake = self.snake
         out = np.zeros((self.gs, self.gs, 3), 'uint8')
         fl = self.fruit_loc
@@ -92,7 +92,7 @@ class Env:
         for i, s in enumerate(l):
             if self._bounds_check(s):
                 if gradation:
-                    out[s.y, s.x] = 30 + 170.0/len(l)*i
+                    out[s.y, s.x] = 100 + 100.0/len(l)*i
                 else:
                     out[s.y, s.x] = 128
 

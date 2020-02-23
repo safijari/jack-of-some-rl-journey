@@ -1,4 +1,5 @@
 import argh
+import os
 import time
 import gym
 import numpy as np
@@ -8,7 +9,7 @@ from keras.models import Sequential
 from keras.layers import Dense, Activation, Flatten, Convolution2D, Permute, MaxPooling2D
 from keras.optimizers import Adam
 
-from rl.policy import LinearAnnealedPolicy, BoltzmannQPolicy, EpsGreedyQPolicy
+from rl.policy import LinearAnnealedPolicy, BoltzmannQPolicy, EpsGreedyQPolicy, BoltzmannGumbelQPolicy, GreedyQPolicy
 from rl.memory import SequentialMemory
 from rl.core import Processor
 from rl.callbacks import FileLogger, ModelIntervalCheckpoint
@@ -78,7 +79,7 @@ def make_model(shape, num_actions):
 #     return model
 
 
-def main(shape=10, winsize=4, test=False, num_max_test=200):
+def main(shape=10, winsize=4, test=False, num_max_test=200, visualize_training=False, start_steps=0):
     INPUT_SHAPE = (shape, shape)
     WINDOW_LENGTH = winsize
 
@@ -108,10 +109,10 @@ def main(shape=10, winsize=4, test=False, num_max_test=200):
     memory = SequentialMemory(limit=100000, window_length=WINDOW_LENGTH)
     processor = SnakeProcessor()
 
-    # policy = LinearAnnealedPolicy(
-    #     EpsGreedyQPolicy(), attr='eps', value_max=1., value_min=.1,
-    #     value_test=0, nb_steps=500000)
-    policy = BoltzmannQPolicy()
+    start_policy = LinearAnnealedPolicy(
+        EpsGreedyQPolicy(), attr='eps', value_max=0, value_min=0,
+        value_test=0, nb_steps=500000)
+    policy = BoltzmannQPolicy(tau=0.25)
 
     interval = 20000
 
@@ -130,6 +131,9 @@ def main(shape=10, winsize=4, test=False, num_max_test=200):
     weights_filename = 'dqn_snake_weights.h5f'
 
     if not test:
+        if os.path.exists('starting_weights.h5'):
+            print('loadin!')
+            model.load_weights('starting_weights.h5')
         # Okay, now it's time to learn something! We capture the interrupt exception so that training
         # can be prematurely aborted. Notice that now you can use the built-in Keras callbacks!
         weights_filename = 'dqn_{}_weights.h5f'.format('snake')
@@ -138,7 +142,7 @@ def main(shape=10, winsize=4, test=False, num_max_test=200):
         callbacks = [ModelIntervalCheckpoint(checkpoint_weights_filename, interval=interval)]
         callbacks += [ModelIntervalCheckpoint(weights_filename, interval=interval)]
         callbacks += [FileLogger(log_filename, interval=500)]
-        dqn.fit(env, callbacks=callbacks, nb_steps=10000000, log_interval=10000, visualize=False)
+        dqn.fit(env, callbacks=callbacks, nb_steps=10000000, log_interval=10000, visualize=visualize_training, nb_max_start_steps=start_steps)
 
         # After training is done, we save the final weights one more time.
         # dqn.save_weights(weights_filename, overwrite=True)
