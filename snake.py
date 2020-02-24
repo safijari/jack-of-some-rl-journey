@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-from random import choice
+from random import choice, seed
 from dataclasses import dataclass
 from enum import Enum
 import os
@@ -45,6 +45,7 @@ class Env:
         self.reset()
 
     def reset(self):
+        seed(123)
         grid_size = self.gs
         self.snake = Snake()
 
