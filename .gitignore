@@ -26,6 +26,9 @@ share/python-wheels/
 .installed.cfg
 *.egg
 snake_*
+*.h5*
+wandb*
+*log.json
 MANIFEST
 
 # PyInstaller

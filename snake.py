@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-from random import choice
+from random import choice, seed
 from dataclasses import dataclass
 from enum import Enum
 import os
@@ -40,11 +40,15 @@ action_dir_map = {
 }
 
 class Env:
-    def __init__(self, grid_size=40):
+    def __init__(self, grid_size=40, seed=None):
+        self.seed = seed
         self.gs = grid_size
         self.reset()
+        self.seed = seed
 
     def reset(self):
+        if self.seed:
+            seed(self.seed)
         grid_size = self.gs
         self.snake = Snake()
 

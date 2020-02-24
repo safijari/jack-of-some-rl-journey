@@ -79,7 +79,7 @@ def make_model(shape, num_actions):
 #     return model
 
 
-def main(shape=10, winsize=4, test=False, num_max_test=200, visualize_training=False, start_steps=0):
+def main(shape=10, winsize=4, test=False, num_max_test=200, visualize_training=False, start_steps=0, randseed=None, human_mode_sleep=0.02):
     INPUT_SHAPE = (shape, shape)
     WINDOW_LENGTH = winsize
 
@@ -99,7 +99,14 @@ def main(shape=10, winsize=4, test=False, num_max_test=200, visualize_training=F
         def process_reward(self, reward):
             return reward
 
-    env = gym.make('snakenv-v0')
+    try:
+        randseed = int(randseed)
+        print(f"set seed to {randseed}")
+    except Exception:
+        print(f"failed to intify seed of {randseed}, making it None")
+        randseed = None
+
+    env = gym.make('snakenv-v0', gs=shape, seed=randseed, human_mode_sleep=human_mode_sleep)
     np.random.seed(123)
     env.seed(123)
 
@@ -121,7 +128,7 @@ def main(shape=10, winsize=4, test=False, num_max_test=200, visualize_training=F
                    policy=policy,
                    memory=memory,
                    processor=processor,
-                   nb_steps_warmup=20000,
+                   nb_steps_warmup=2000,
                    gamma=.99,
                    target_model_update=interval,
                    train_interval=4,
@@ -157,7 +164,7 @@ def main(shape=10, winsize=4, test=False, num_max_test=200, visualize_training=F
             except Exception:
                 print("weights not found, waiting")
             dqn.test(env, nb_episodes=10, visualize=visualize_training, nb_max_episode_steps=num_max_test)
-            time.sleep(30)
+            time.sleep(3)
 
 if __name__ == '__main__':
     argh.dispatch_command(main)
