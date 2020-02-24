@@ -142,6 +142,7 @@ def main(shape=10, winsize=4, test=False, num_max_test=200, visualize_training=F
         callbacks = [ModelIntervalCheckpoint(checkpoint_weights_filename, interval=interval)]
         callbacks += [ModelIntervalCheckpoint(weights_filename, interval=interval)]
         callbacks += [FileLogger(log_filename, interval=500)]
+        callbacks += [WandbLogger(project="snake-rl")]
         dqn.fit(env, callbacks=callbacks, nb_steps=10000000, log_interval=10000, visualize=visualize_training, nb_max_start_steps=start_steps)
 
         # After training is done, we save the final weights one more time.
@@ -155,8 +156,8 @@ def main(shape=10, winsize=4, test=False, num_max_test=200, visualize_training=F
                 dqn.load_weights(weights_filename)
             except Exception:
                 print("weights not found, waiting")
-            dqn.test(env, nb_episodes=3, visualize=True, nb_max_episode_steps=num_max_test)
-            time.sleep(5)
+            dqn.test(env, nb_episodes=10, visualize=visualize_training, nb_max_episode_steps=num_max_test)
+            time.sleep(30)
 
 if __name__ == '__main__':
     argh.dispatch_command(main)

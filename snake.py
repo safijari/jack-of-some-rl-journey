@@ -3,6 +3,7 @@ import cv2
 from random import choice
 from dataclasses import dataclass
 from enum import Enum
+import os
 
 class SnakeState(Enum):
     OK = 1
@@ -17,6 +18,16 @@ class Point:
 
     def copy(self, xincr, yincr):
         return Point(self.x + xincr, self.y + yincr)
+
+    def to_dict(self):
+        return {
+            'x': self.x,
+            'y': self.y,
+        }
+
+    @classmethod
+    def from_dict(cls, d):
+        return cls(d['x'], d['y'])
 
     def __repr__(self):
         return f"(x: {self.x}, y: {self.y})"
@@ -45,6 +56,18 @@ class Env:
         self.pos_set = set(pos_list)
         self.fruit_location = None
         self.set_fruit()
+
+
+    def to_dict(self):
+        return {
+            'snake': self.snake.to_dict(),
+            'fruit': self.fruit_loc.to_dict()
+        }
+
+
+    def from_dict(self, d):
+        self.snake = Snake.from_dict(d['snake'])
+        self.fruit_location = Point.from_dict(d['fruit'])
 
 
     def update(self, direction=None):
@@ -81,7 +104,7 @@ class Env:
     def _bounds_check(self, pos):
         return pos.x >= 0 and pos.x < self.gs and pos.y >= 0 and pos.y < self.gs
 
-    def to_image(self, gradation=False):
+    def to_image(self, gradation=True):
         snake = self.snake
         out = np.zeros((self.gs, self.gs, 3), 'uint8')
         fl = self.fruit_loc
@@ -111,6 +134,23 @@ class Snake:
             if self.head.x == t.x and self.head.y == t.y:
                 return True
         return False
+
+    def to_dict(self):
+        return {
+            'head': self.head.to_dict(),
+            'tail': [t.to_dict() for t in self.tail],
+            'tail_size': self.tail_size,
+            'direction': self.direction.to_dict()
+        }
+
+    @classmethod
+    def from_dict(cls, d):
+        s = cls()
+        s.head = Point.from_dict(d['head'])
+        s.tail = [Point.from_dict(t) for t in d['tail']]
+        s.tail_size = d['tail_size']
+        s.direction = Point.from_dict(d['direction'])
+        return s
 
     def update(self):
         new_head = self.head.copy(self.direction.x, self.direction.y)
