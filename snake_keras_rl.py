@@ -134,7 +134,7 @@ def main(shape=10, winsize=4, test=False, num_max_test=200, visualize_training=F
                    train_interval=4,
                    delta_clip=1.)
 
-    dqn.compile(Adam(lr=0.0005), metrics=['mae'])
+    dqn.compile(Adam(), metrics=['mae'])
     weights_filename = 'dqn_snake_weights.h5f'
 
     if not test:

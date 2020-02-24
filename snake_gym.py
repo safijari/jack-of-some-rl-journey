@@ -68,11 +68,13 @@ class SnakeEnv(gym.Env):
         self.idx = 0
         self.total_score = 0
         self.env.reset()
-        if self.running_log and self.use_running_log:
+        if self.running_log and self.use_running_log and random.random() > 0.75:
             idx = random.randint(0, len(self.running_log) - 1)
             # print(f"keeping {idx + 1} out of {len(self.running_log)} past transitions")
             self.env.from_dict(self.running_log[idx])
             self.running_log = self.running_log[:idx]
+        else:
+            self.running_log = []
         return self.env.to_image()
 
     def render(self, mode='human', close=False):
