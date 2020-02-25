@@ -28,9 +28,9 @@ action_map = {
 
 
 reward_map = {
-    SnakeState.OK: -0.01,
+    SnakeState.OK: 0,
     SnakeState.ATE: 1,
-    SnakeState.DED: -1,
+    SnakeState.DED: 0,
     SnakeState.WON: 1
 }
 

@@ -1,6 +1,7 @@
- #!/usr/bin/env python -W ignore::DeprecationWarning
+import math
 import ptan
 from tensorboardX import SummaryWriter
+import wandb
 import argh
 import gym
 from snake_gym import *
@@ -10,6 +11,29 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+
+class NoisyLinear(nn.Linear):
+    def __init__(self, in_features, out_features, sigma_init=0.017, bias=True):
+        super(NoisyLinear, self).__init__(in_features, out_features, bias=bias)
+        self.sigma_weight = nn.Parameter(torch.full((out_features, in_features), sigma_init))
+        self.register_buffer("epsilon_weight", torch.zeros(out_features, in_features))
+        if bias:
+            self.sigma_bias = nn.Parameter(torch.full((out_features,), sigma_init))
+            self.register_buffer("epsilon_bias", torch.zeros(out_features))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        std = math.sqrt(3 / self.in_features)
+        self.weight.data.uniform_(-std, std)
+        self.bias.data.uniform_(-std, std)
+
+    def forward(self, input):
+        self.epsilon_weight.normal_()
+        bias = self.bias
+        if bias is not None:
+            self.epsilon_bias.normal_()
+            bias = bias + self.sigma_bias * self.epsilon_bias.data
+        return F.linear(input, self.weight + self.sigma_weight * self.epsilon_weight.data, bias)
 
 def unpack_batch(batch):
     states, actions, rewards, dones, last_states = [], [], [], [], []
@@ -35,24 +59,27 @@ def conv_cell(inchannels, outchannels, kernel, stride=1):
 class Net(nn.Module):
     def __init__(self, grid_size, n_actions, channels=1):
         super(Net, self).__init__()
-        self.gs = grid_size
-        self.convs = nn.Sequential(
-            conv_cell(channels, 64, 3, 1),
-            conv_cell(64, 128, 3, 1),
-            conv_cell(128, 128, 3, 2),
-            )
+        if grid_size >= 10:
+            self.convs = nn.Sequential(
+                conv_cell(channels, 64, 3, 1),
+                conv_cell(64, 128, 3, 1),
+                conv_cell(128, 128, 3, 2),
+                )
+        else:
+            self.convs = nn.Sequential(
+                conv_cell(channels, 128, 3, 1))
 
         # make up a 1 item batch and put it through the convs
         convs_result = self.convs(torch.zeros(1, *(channels, grid_size, grid_size)))
         # take the result's size and prod it all together, that's the flattened size
         out_size = int(np.prod(convs_result.size()))
 
-        hs = 512
+        hs = 256
 
         self.fc = nn.Sequential(
-            nn.Linear(out_size, hs),
+            NoisyLinear(out_size, hs),
             nn.ReLU(),
-            nn.Linear(hs, n_actions)
+            NoisyLinear(hs, n_actions)
             )
 
     def forward(self, x: torch.Tensor):
@@ -61,8 +88,14 @@ class Net(nn.Module):
         fcin = self.convs(fx).view(fx.size()[0], -1)
         return self.fc(fcin)
 
+    def noisy_layers_sigma_snr(self):
+        return [
+            ((layer.weight ** 2).mean().sqrt() / (layer.sigma_weight ** 2).mean().sqrt()).item()
+            for layer in self.noisy_layers
+        ]
 
-def calc_loss(batch, batch_weights, net, tgt_net, gamma, device="cpu"):
+
+def calc_loss(batch, net, tgt_net, gamma, device="cpu"):
     states, actions, rewards, dones, next_states = unpack_batch(batch)
 
     states_v = torch.tensor(states).to(device)
@@ -70,15 +103,14 @@ def calc_loss(batch, batch_weights, net, tgt_net, gamma, device="cpu"):
     actions_v = torch.tensor(actions).to(device)
     rewards_v = torch.tensor(rewards).to(device)
     done_mask = torch.ByteTensor(dones).to(device)
-    batch_weights_v = torch.tensor(batch_weights).to(device)
 
     state_action_values = net(states_v).gather(1, actions_v.unsqueeze(-1)).squeeze(-1)
     next_state_values = tgt_net(next_states_v).max(1)[0]
     next_state_values[done_mask.bool()] = 0.0
 
     expected_state_action_values = next_state_values.detach() * gamma + rewards_v
-    losses_v = batch_weights_v * (state_action_values - expected_state_action_values) ** 2
-    return losses_v.mean(), losses_v + 1e-5
+    losses_v = (state_action_values - expected_state_action_values) ** 2
+    return losses_v.mean()
 
 
 def run_test(net, env, max_steps=200, visualize=False):
@@ -104,9 +136,13 @@ def run_test(net, env, max_steps=200, visualize=False):
     return i, total_reward, done
 
 
-def main(run_name, shape=4, winsize=1, test=False, num_max_test=200, visualize_training=False, start_steps=0, randseed=None, human_mode_sleep=0.02, device='cpu', gamma=0.99, tgt_net_sync=20000):
+def main(run_name, shape=10, winsize=4, num_max_test=1000, randseed=None, human_mode_sleep=0.02, device='cpu', gamma=0.99, tgt_net_sync=5000):
+
     INPUT_SHAPE = (shape, shape)
     WINDOW_LENGTH = winsize
+
+    lr = 0.001
+    replay_size = 500000
 
     try:
         randseed = int(randseed)
@@ -124,23 +160,37 @@ def main(run_name, shape=4, winsize=1, test=False, num_max_test=200, visualize_t
 
     input_shape = (WINDOW_LENGTH,) + INPUT_SHAPE
 
-    writer = SummaryWriter(comment=run_name)
-
     net = Net(shape, env.action_space.n, channels=winsize).to(device)
-    # m = torch.load('./4by4_w1_pytorch_first/1000000.pth')
-    # net.load_state_dict(m())
     tgt_net = ptan.agent.TargetNet(net)
-    selector = ptan.actions.EpsilonGreedyActionSelector(1.0)
-    epsilon_tracker = ptan.actions.EpsilonTracker(selector, 1.0, 0.05, 2500000)
-    agent = ptan.agent.DQNAgent(net, selector, device=device)
+
+    batch_size = 32
+
+    wandb.init(project='snake-rl-ptan', name=run_name, config={
+        'lr': lr,
+        'replay_size': replay_size,
+        'net': str(net),
+        'randseed': randseed,
+        'gamma': gamma,
+        'tgt_net_sync': tgt_net_sync,
+        'shape': shape,
+        'winsize': winsize,
+        'batch_size': batch_size,
+    })
+
+    wandb.watch(net)
+    wandb.watch(tgt_net.target_model)
+
+    agent = ptan.agent.DQNAgent(net, ptan.actions.ArgmaxActionSelector(), device=device)
 
     exp_source = ptan.experience.ExperienceSourceFirstLast(env, agent, gamma, steps_count=1)
 
-    buffer = ptan.experience.PrioritizedReplayBuffer(exp_source, 500000, 0.6)
-    optimizer = optim.Adam(net.parameters(), lr=0.001)
+    buffer = ptan.experience.ExperienceReplayBuffer(exp_source, replay_size)
+    optimizer = optim.Adam(net.parameters(), lr=lr)
 
 
-    replay_initial = 5000
+    replay_initial = int(replay_size/10)
+
+    wandb.init(project='snake-rl-ptan', name=run_name)
 
 
     for i in range(5000000):
@@ -150,28 +200,39 @@ def main(run_name, shape=4, winsize=1, test=False, num_max_test=200, visualize_t
             continue
 
         tidx = i - replay_initial
-        epsilon_tracker.frame(tidx)
 
         optimizer.zero_grad()
-        batch, batch_indices, batch_weights = buffer.sample(32, beta=0.4) # beta???
-        loss_v, sample_prios_v = calc_loss(
-            batch, batch_weights, net, tgt_net.target_model, gamma, device=device)
+        batch = buffer.sample(batch_size)
+        loss_v = calc_loss(
+            batch, net, tgt_net.target_model, gamma, device=device)
 
-        writer.add_scalar('loss', loss_v.item(), tidx)
-        writer.add_scalar('eps', selector.epsilon, tidx)
+        # writer.add_scalar('loss', loss_v.item(), tidx)
 
         loss_v.backward()
         optimizer.step()
-        buffer.update_priorities(batch_indices, sample_prios_v.data.cpu().numpy())
+
+        try:
+            m = exp_source.pop_rewards_steps()[-1]
+            # writer.add_scalar('explore_reward', m[0], tidx)
+            # writer.add_scalar('explore_episode_len', m[1], tidx)
+            wandb.log({
+                'loss': loss_v.item(),
+                'explore_reward': m[0],
+                'explore_episode_len': m[1]
+            }, step=tidx)
+        except Exception:
+            pass
 
         if tidx % 1000 == 0:
             visualize = os.path.exists('/tmp/vis')
             epsteps, rew, done = run_test(net, test_env, visualize=visualize)
-            writer.add_scalar('test_reward', rew, tidx)
-            writer.add_scalar('test_episode_len', epsteps + 1, tidx)
-            m = exp_source.pop_rewards_steps()[-1]
-            writer.add_scalar('explore_reward', m[0], tidx)
-            writer.add_scalar('explore_episode_len', m[1], tidx)
+            # writer.add_scalar('test_reward', rew, tidx)
+            # writer.add_scalar('test_episode_len', epsteps + 1, tidx)
+            wandb.log({
+                'loss': loss_v.item(),
+                'test_reward': m[0],
+                'test_episode_len': m[1]
+            }, step=tidx)
 
         if tidx % tgt_net_sync == 0:
             if tidx > 0:
