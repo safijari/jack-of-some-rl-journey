@@ -123,7 +123,7 @@ class Env:
                 else:
                     out[s.y, s.x] = 128
 
-        return cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)
+        return np.expand_dims(cv2.cvtColor(out, cv2.COLOR_BGR2GRAY), -1)
 
 
 class Snake:
