@@ -132,3 +132,5 @@ dmypy.json
 .pyre/
 models/
 logs/
+runs/
+*.pth

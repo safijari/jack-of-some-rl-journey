@@ -12,6 +12,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+def calc_qvals(rewards, gamma):
+    res = []
+    sum_r = 0.0
+    for r in reversed(rewards):
+        sum_r *= gamma
+        sum_r += r
+        res.append(sum_r)
+    return list(reversed(res))
+
 class NoisyLinear(nn.Linear):
     def __init__(self, in_features, out_features, sigma_init=0.017, bias=True):
         super(NoisyLinear, self).__init__(in_features, out_features, bias=bias)
@@ -57,7 +66,7 @@ def conv_cell(inchannels, outchannels, kernel, stride=1):
     )
 
 class Net(nn.Module):
-    def __init__(self, grid_size, n_actions, channels=1):
+    def __init__(self, grid_size, n_actions, channels=1, use_noisy_linear=False):
         super(Net, self).__init__()
         if grid_size >= 10:
             self.convs = nn.Sequential(
@@ -76,11 +85,18 @@ class Net(nn.Module):
 
         hs = 256
 
-        self.fc = nn.Sequential(
-            NoisyLinear(out_size, hs),
-            nn.ReLU(),
-            NoisyLinear(hs, n_actions)
-            )
+        if use_noisy_linear:
+            self.fc = nn.Sequential(
+                NoisyLinear(out_size, hs),
+                nn.ReLU(),
+                NoisyLinear(hs, n_actions)
+                )
+        else:
+            self.fc = nn.Sequential(
+                nn.Linear(out_size, hs),
+                nn.ReLU(),
+                nn.Linear(hs, n_actions)
+                )
 
     def forward(self, x: torch.Tensor):
         fx = x.float() / 255
@@ -162,7 +178,6 @@ def main(run_name, shape=10, winsize=4, num_max_test=1000, randseed=None, human_
 
     net = Net(shape, env.action_space.n, channels=winsize).to(device)
     tgt_net = ptan.agent.TargetNet(net)
-
     batch_size = 32
 
     wandb.init(project='snake-rl-ptan', name=run_name, config={
@@ -187,7 +202,6 @@ def main(run_name, shape=10, winsize=4, num_max_test=1000, randseed=None, human_
     buffer = ptan.experience.ExperienceReplayBuffer(exp_source, replay_size)
     optimizer = optim.Adam(net.parameters(), lr=lr)
 
-
     replay_initial = int(replay_size/10)
 
     wandb.init(project='snake-rl-ptan', name=run_name)
@@ -206,15 +220,11 @@ def main(run_name, shape=10, winsize=4, num_max_test=1000, randseed=None, human_
         loss_v = calc_loss(
             batch, net, tgt_net.target_model, gamma, device=device)
 
-        # writer.add_scalar('loss', loss_v.item(), tidx)
-
         loss_v.backward()
         optimizer.step()
 
         try:
             m = exp_source.pop_rewards_steps()[-1]
-            # writer.add_scalar('explore_reward', m[0], tidx)
-            # writer.add_scalar('explore_episode_len', m[1], tidx)
             wandb.log({
                 'loss': loss_v.item(),
                 'explore_reward': m[0],
@@ -223,11 +233,9 @@ def main(run_name, shape=10, winsize=4, num_max_test=1000, randseed=None, human_
         except Exception:
             pass
 
-        if tidx % 1000 == 0:
+        if tidx % 5000 == 0:
             visualize = os.path.exists('/tmp/vis')
             epsteps, rew, done = run_test(net, test_env, visualize=visualize)
-            # writer.add_scalar('test_reward', rew, tidx)
-            # writer.add_scalar('test_episode_len', epsteps + 1, tidx)
             wandb.log({
                 'loss': loss_v.item(),
                 'test_reward': m[0],
@@ -241,5 +249,118 @@ def main(run_name, shape=10, winsize=4, num_max_test=1000, randseed=None, human_
                     os.makedirs(run_name)
                 torch.save(net.state_dict, os.path.join(run_name, f"{tidx}.pth"))
 
+
+def main_reinforce(run_name, shape=4, winsize=1, num_max_test=1000, randseed=None, human_mode_sleep=0.02, device='cpu', gamma=0.99):
+
+    INPUT_SHAPE = (shape, shape)
+    WINDOW_LENGTH = winsize
+
+    lr = 0.001
+
+    try:
+        randseed = int(randseed)
+        print(f"set seed to {randseed}")
+    except Exception:
+        print(f"failed to intify seed of {randseed}, making it None")
+        randseed = None
+
+    env = gym.make('snakenv-v0', gs=shape, seed=randseed, human_mode_sleep=human_mode_sleep)
+    env = ptan.common.wrappers.ImageToPyTorch(env)
+    env = ptan.common.wrappers.FrameStack(env, winsize)
+
+    test_env = gym.make('snakenv-v0', gs=shape, seed=randseed, human_mode_sleep=human_mode_sleep)
+    test_env = ptan.common.wrappers.ImageToPyTorch(test_env)
+    test_env = ptan.common.wrappers.FrameStack(test_env, winsize)
+
+    input_shape = (WINDOW_LENGTH,) + INPUT_SHAPE
+
+    net = Net(shape, env.action_space.n, channels=winsize).to(device)
+
+    max_batch_episodes = 100
+
+    wandb.init(project='snake-rl-reinforce', name=run_name, config={
+        'lr': lr,
+        'net': str(net),
+        'randseed': randseed,
+        'gamma': gamma,
+        'shape': shape,
+        'winsize': winsize,
+        'max_batch_episodes': max_batch_episodes,
+    })
+
+    wandb.watch(net)
+
+    # agent = ptan.agent.DQNAgent(net, ptan.actions.ArgmaxActionSelector(), device=device)
+    agent = ptan.agent.PolicyAgent(net, apply_softmax=True)
+
+    exp_source = ptan.experience.ExperienceSourceFirstLast(env, agent, gamma, steps_count=1)
+
+    optimizer = optim.Adam(net.parameters(), lr=lr)
+
+    wandb.init(project='snake-rl-ptan', name=run_name)
+
+    total_rewards = []
+    step_idx = 0
+    done_episodes = 0
+
+    batch_episodes = 0
+    batch_states, batch_actions, batch_qvals = [], [], []
+    cur_rewards = []
+
+    for step_idx, exp in enumerate(exp_source):
+        batch_states.append(np.array(exp.state, copy=False))
+        batch_actions.append(int(exp.action))
+        cur_rewards.append(exp.reward)
+
+        if exp.last_state is None:
+            batch_qvals.extend(calc_qvals(cur_rewards, gamma))
+            cur_rewards.clear()
+            batch_episodes += 1
+
+
+        new_rewards = exp_source.pop_total_rewards()
+        if new_rewards:
+            done_episodes += 1
+            reward = new_rewards[0]
+            total_rewards.append(reward)
+            mean_rewards = float(np.mean(total_rewards[-100:]))
+            print("%d: reward: %6.2f, mean_100: %6.2f, episodes: %d" % (
+                step_idx, reward, mean_rewards, done_episodes))
+            wandb.log({
+                'reward': reward,
+                'reward_100': mean_rewards,
+                'episodes': done_episodes
+            }, step=step_idx)
+
+        if batch_episodes < max_batch_episodes:
+            continue
+
+        optimizer.zero_grad()
+        states_v = torch.FloatTensor(batch_states)
+        batch_actions_t = torch.LongTensor(batch_actions)
+        batch_qvals_v = torch.FloatTensor(batch_qvals)
+
+        logits_v = net(states_v)
+        log_prob_v = F.log_softmax(logits_v, dim=1)
+        log_prob_actions_v = batch_qvals_v * log_prob_v[range(len(batch_qvals_v)), batch_actions_t]
+        loss_v = -log_prob_actions_v.mean()
+
+        loss_v.backward()
+        optimizer.step()
+
+        wandb.log({
+            'loss': loss_v.item(),
+        }, step=step_idx)
+        batch_episodes = 0
+        batch_states.clear()
+        batch_actions.clear()
+        batch_qvals.clear()
+
+
+        if step_idx % 10000 == 0:
+            if not os.path.exists(run_name):
+                os.makedirs(run_name)
+            torch.save(net.state_dict, os.path.join(run_name, f"reinforce_{step_idx}.pth"))
+
 if __name__ == '__main__':
-    argh.dispatch_command(main)
+    argh.dispatch_commands([main, main_reinforce])
