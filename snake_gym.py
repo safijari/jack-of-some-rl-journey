@@ -19,11 +19,10 @@ KEYWORD_TO_KEY = {
 }
 
 action_map = {
-    0: None,
-    1: 'up',
-    2: 'down',
-    3: 'left',
-    4: 'right'
+    0: 'up',
+    1: 'down',
+    2: 'left',
+    3: 'right'
 }
 
 
@@ -44,7 +43,7 @@ class SnakeEnv(gym.Env):
         self.running_log = []
         self.use_running_log = use_running_log
         self.viewer = None
-        self.action_space = spaces.Discrete(5)
+        self.action_space = spaces.Discrete(4)
         self.observation_space = spaces.Box(
             low=0, high=255, shape=(self.env.gs, self.env.gs, 3),
             dtype=np.uint8)
@@ -53,7 +52,7 @@ class SnakeEnv(gym.Env):
         self.vis = False
 
     def step(self, action):
-        self.running_log.append(self.env.to_dict())
+        # self.running_log.append(self.env.to_dict())
         self.idx += 1
         enum = self.env.update(action_map[action])
         done = (enum in [SnakeState.DED, SnakeState.WON])
@@ -96,7 +95,6 @@ class SnakeEnv(gym.Env):
             self.viewer.imshow(im)
             time.sleep(self.human_mode_sleep)
             return self.viewer.isopen
-            # return im
         elif mode == 'jack':
             from gym.envs.classic_control import rendering
             if self.viewer is None:

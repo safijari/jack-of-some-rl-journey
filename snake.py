@@ -168,7 +168,10 @@ class Snake:
         self.head = new_head
 
     def shed(self):
-        self.tail = self.tail[-self.tail_size:]
+        if self.tail_size > 0:
+            self.tail = self.tail[-self.tail_size:]
+        else:
+            self.tail = []
 
     def __repr__(self):
         return f"""Head: {self.head}
