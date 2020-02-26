@@ -11,6 +11,9 @@ import torch.nn as nn
 import torch.nn.utils as nn_utils
 import torch.nn.functional as F
 import torch.optim as optim
+import torch.multiprocessing as mp
+import collections
+
 
 import common
 
@@ -18,11 +21,32 @@ GAMMA = 0.99
 LEARNING_RATE = 0.001
 ENTROPY_BETA = 0.05
 BATCH_SIZE = 128
+PROCESSES_COUNT = 7
 NUM_ENVS = 25
 
 REWARD_STEPS = 1
 CLIP_GRAD = 0.1
 
+TotalReward = collections.namedtuple('TotalReward', field_names='reward')
+
+
+def make_env(winsize, allow_viz=False):
+    env = gym.make('snakenv-v0', gs=4, seed=None, human_mode_sleep=0.02, allow_viz=allow_viz)
+    env = ptan.common.wrappers.ImageToPyTorch(env)
+    env = ptan.common.wrappers.FrameStack(env, winsize)
+    return env
+
+
+def data_func(net, device, train_queue, winsize):
+    envs = [make_env(winsize) for _ in range(NUM_ENVS)]
+    agent = ptan.agent.PolicyAgent(lambda x: net(x)[0], device=device, apply_softmax=True)
+    exp_source = ptan.experience.ExperienceSourceFirstLast(envs, agent, gamma=GAMMA, steps_count=REWARD_STEPS)
+
+    for exp in exp_source:
+        new_rewards = exp_source.pop_total_rewards()
+        if new_rewards:
+            train_queue.put(TotalReward(reward=np.mean(new_rewards)))
+        train_queue.put(exp)
 
 class AtariA2C(nn.Module):
     def __init__(self, input_shape, n_actions):
@@ -93,41 +117,51 @@ def unpack_batch(batch, net, device='cpu'):
 
 
 if __name__ == "__main__":
+    mp.set_start_method('spawn')
     parser = argparse.ArgumentParser()
     parser.add_argument("--cuda", default=False, action="store_true", help="Enable cuda")
     parser.add_argument("-n", "--name", required=True, help="Name of the run")
     args = parser.parse_args()
     device = torch.device("cuda" if args.cuda else "cpu")
 
-    def make_env(winsize, allow_viz=False):
-        env = gym.make('snakenv-v0', gs=4, seed=None, human_mode_sleep=0.02, allow_viz=allow_viz)
-        env = ptan.common.wrappers.ImageToPyTorch(env)
-        env = ptan.common.wrappers.FrameStack(env, winsize)
-        return env
-
     envs = [make_env(2) for _ in range(NUM_ENVS-1)] + [make_env(2, True)]
     writer = SummaryWriter(comment="-pong-a2c_" + args.name)
 
     net = AtariA2C([2, 84, 84], envs[0].action_space.n).to(device)
     print(net)
+    net.share_memory()
 
     agent = ptan.agent.PolicyAgent(lambda x: net(x)[0], apply_softmax=True, device=device)
     exp_source = ptan.experience.ExperienceSourceFirstLast(envs, agent, gamma=GAMMA, steps_count=REWARD_STEPS)
 
     optimizer = optim.Adam(net.parameters(), lr=LEARNING_RATE, eps=1e-3)
 
+    train_queue = mp.Queue(maxsize=PROCESSES_COUNT)
+    data_proc_list = []
+    winsize = 2
+    for _ in range(PROCESSES_COUNT):
+        data_proc = mp.Process(target=data_func, args=(net, device, train_queue, winsize))
+        data_proc.start()
+        data_proc_list.append(data_proc)
+
+
     batch = []
+    step_idx = 0
 
     with common.RewardTracker(writer, stop_reward=90) as tracker:
         with ptan.common.utils.TBMeanTracker(writer, batch_size=10) as tb_tracker:
-            for step_idx, exp in enumerate(exp_source):
-                batch.append(exp)
-
-                # handle new rewards
-                new_rewards = exp_source.pop_total_rewards()
-                if new_rewards:
-                    if tracker.reward(new_rewards[0], step_idx):
+            # for step_idx, exp in enumerate(exp_source):
+            while True:
+                train_entry = train_queue.get()
+                if isinstance(train_entry, TotalReward):
+                    if tracker.reward(train_entry.reward, step_idx):
                         break
+                    continue
+                step_idx += 1
+
+                exp = train_entry
+
+                batch.append(exp)
 
                 if step_idx % 100000 == 0:
                     torch.save(net.state_dict, f"step_idx.pth")
