@@ -29,14 +29,14 @@ action_map = {
 reward_map = {
     SnakeState.OK: 0,
     SnakeState.ATE: 1,
-    SnakeState.DED: 0,
+    SnakeState.DED: -1,
     SnakeState.WON: 1
 }
 
 
 class SnakeEnv(gym.Env):
     metadata = {'render.modes': ['human', 'rgb_array']}
-    def __init__(self, gs=10, human_mode_sleep=0.05, seed=None, use_running_log=False):
+    def __init__(self, gs=10, human_mode_sleep=0.05, seed=None, use_running_log=False, allow_viz=False):
         super(SnakeEnv, self).__init__()
         self.env = Env(gs, seed=seed)
         self.human_mode_sleep = human_mode_sleep
@@ -50,6 +50,7 @@ class SnakeEnv(gym.Env):
         self.idx = 0
         self.total_score = 0
         self.vis = False
+        self.allow_viz = allow_viz
 
     def step(self, action):
         # self.running_log.append(self.env.to_dict())
@@ -58,7 +59,7 @@ class SnakeEnv(gym.Env):
         done = (enum in [SnakeState.DED, SnakeState.WON])
         rew = reward_map[enum]
         self.total_score += rew
-        if self.vis:
+        if self.vis and self.allow_viz:
             self.render()
         # if done:
         #     print(self.idx, self.total_score)

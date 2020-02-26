@@ -15,10 +15,10 @@ import torch.optim as optim
 import common
 
 GAMMA = 0.99
-LEARNING_RATE = 0.002
-ENTROPY_BETA = 0.1
-BATCH_SIZE = 256
-NUM_ENVS = 1
+LEARNING_RATE = 0.001
+ENTROPY_BETA = 0.05
+BATCH_SIZE = 128
+NUM_ENVS = 25
 
 REWARD_STEPS = 1
 CLIP_GRAD = 0.1
@@ -39,15 +39,15 @@ class AtariA2C(nn.Module):
 
         conv_out_size = self._get_conv_out(input_shape)
         self.policy = nn.Sequential(
-            nn.Linear(conv_out_size, 512),
+            nn.Linear(conv_out_size, 128),
             nn.ReLU(),
-            nn.Linear(512, n_actions)
+            nn.Linear(128, n_actions)
         )
 
         self.value = nn.Sequential(
-            nn.Linear(conv_out_size, 512),
+            nn.Linear(conv_out_size, 128),
             nn.ReLU(),
-            nn.Linear(512, 1)
+            nn.Linear(128, 1)
         )
 
     def _get_conv_out(self, shape):
@@ -58,7 +58,6 @@ class AtariA2C(nn.Module):
         fx = x.float() / 256
         conv_out = self.conv(fx).view(fx.size()[0], -1)
         return self.policy(conv_out), self.value(conv_out)
-
 
 def unpack_batch(batch, net, device='cpu'):
     """
@@ -100,16 +99,16 @@ if __name__ == "__main__":
     args = parser.parse_args()
     device = torch.device("cuda" if args.cuda else "cpu")
 
-    def make_env(winsize):
-        env = gym.make('snakenv-v0', gs=10, seed=None, human_mode_sleep=0.02)
+    def make_env(winsize, allow_viz=False):
+        env = gym.make('snakenv-v0', gs=4, seed=None, human_mode_sleep=0.02, allow_viz=allow_viz)
         env = ptan.common.wrappers.ImageToPyTorch(env)
         env = ptan.common.wrappers.FrameStack(env, winsize)
         return env
 
-    envs = [make_env(4) for _ in range(NUM_ENVS)]
+    envs = [make_env(2) for _ in range(NUM_ENVS-1)] + [make_env(2, True)]
     writer = SummaryWriter(comment="-pong-a2c_" + args.name)
 
-    net = AtariA2C([4, 84, 84], envs[0].action_space.n).to(device)
+    net = AtariA2C([2, 84, 84], envs[0].action_space.n).to(device)
     print(net)
 
     agent = ptan.agent.PolicyAgent(lambda x: net(x)[0], apply_softmax=True, device=device)

@@ -64,7 +64,7 @@ class Env:
 
         self.pos_set = set(pos_list)
         self.fruit_location = None
-        self.set_fruit()
+        # self.set_fruit()
 
 
     def to_dict(self):
@@ -87,7 +87,7 @@ class Env:
 
         if not self._bounds_check(snake.head) or self.snake.self_collision():
             out_enum = SnakeState.DED
-        elif snake.head == self.fruit_location:
+        elif True:  # snake.head == self.fruit_location:
             try:
                 self.set_fruit()
                 self.snake.tail_size += 1
@@ -101,7 +101,7 @@ class Env:
 
     @property
     def fruit_loc(self):
-        assert self.fruit_location is not None, "Fruit hasn't been initialized"
+        # assert self.fruit_location is not None, "Fruit hasn't been initialized"
         return self.fruit_location
 
     def set_fruit(self):
@@ -113,11 +113,11 @@ class Env:
     def _bounds_check(self, pos):
         return pos.x >= 0 and pos.x < self.gs and pos.y >= 0 and pos.y < self.gs
 
-    def to_image(self, gradation=True):
+    def to_image(self, gradation=False):
         snake = self.snake
         out = np.zeros((self.gs, self.gs, 3), 'uint8')
-        fl = self.fruit_loc
-        out[fl.y, fl.x] = 255
+        # fl = self.fruit_loc
+        # out[fl.y, fl.x] = 255
 
         l = ([snake.head] + snake.tail[::-1])[::-1]
 
