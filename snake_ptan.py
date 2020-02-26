@@ -76,14 +76,17 @@ class Net(nn.Module):
                 )
         else:
             self.convs = nn.Sequential(
-                conv_cell(channels, 128, 3, 1))
+                conv_cell(channels, 64, 1, 1),
+                conv_cell(64, 128, 1, 1),
+                conv_cell(128, 128, 1, 1)
+                )
 
         # make up a 1 item batch and put it through the convs
         convs_result = self.convs(torch.zeros(1, *(channels, grid_size, grid_size)))
         # take the result's size and prod it all together, that's the flattened size
         out_size = int(np.prod(convs_result.size()))
 
-        hs = 256
+        hs = 512
 
         if use_noisy_linear:
             self.fc = nn.Sequential(

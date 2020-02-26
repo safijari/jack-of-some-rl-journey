@@ -50,6 +50,7 @@ class SnakeEnv(gym.Env):
             dtype=np.uint8)
         self.idx = 0
         self.total_score = 0
+        self.vis = False
 
     def step(self, action):
         self.running_log.append(self.env.to_dict())
@@ -58,11 +59,14 @@ class SnakeEnv(gym.Env):
         done = (enum in [SnakeState.DED, SnakeState.WON])
         rew = reward_map[enum]
         self.total_score += rew
+        if self.vis:
+            self.render()
         # if done:
         #     print(self.idx, self.total_score)
-        return self.env.to_image(), rew, done, {}
+        return self.render('other'), rew, done, {}
 
     def reset(self):
+        self.vis = os.path.exists('/tmp/vis')
         self.idx = 0
         self.total_score = 0
         self.env.reset()
@@ -73,7 +77,7 @@ class SnakeEnv(gym.Env):
             self.running_log = self.running_log[:idx]
         else:
             self.running_log = []
-        return self.env.to_image()
+        return self.render('other')
 
     def render(self, mode='human', close=False):
         im = self.env.to_image()
@@ -103,7 +107,7 @@ class SnakeEnv(gym.Env):
             self.viewer.imshow(cv2.resize(self.env.to_image(), (640, 640), interpolation=0))
             return self.viewer.isopen
         else:
-            return cv2.cvtColor(cv2.resize(im, (640, 640), interpolation=0), cv2.COLOR_GRAY2BGR)
+            return np.expand_dims(cv2.resize(im[:,:,0], (84, 84), interpolation=0), -1)
 
 try:
     gym.envs.register(id="snakenv-v0", entry_point='snake_gym:SnakeEnv')
