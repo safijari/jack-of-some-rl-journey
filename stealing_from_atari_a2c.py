@@ -15,10 +15,10 @@ import torch.optim as optim
 import common
 
 GAMMA = 0.99
-LEARNING_RATE = 0.001
-ENTROPY_BETA = 0.01
-BATCH_SIZE = 128
-NUM_ENVS = 100
+LEARNING_RATE = 0.002
+ENTROPY_BETA = 0.1
+BATCH_SIZE = 256
+NUM_ENVS = 75
 
 REWARD_STEPS = 1
 CLIP_GRAD = 0.1
@@ -119,7 +119,7 @@ if __name__ == "__main__":
 
     batch = []
 
-    with common.RewardTracker(writer, stop_reward=14) as tracker:
+    with common.RewardTracker(writer, stop_reward=90) as tracker:
         with ptan.common.utils.TBMeanTracker(writer, batch_size=10) as tb_tracker:
             for step_idx, exp in enumerate(exp_source):
                 batch.append(exp)
@@ -129,6 +129,9 @@ if __name__ == "__main__":
                 if new_rewards:
                     if tracker.reward(new_rewards[0], step_idx):
                         break
+
+                if step_idx % 100000 == 0:
+                    torch.save(net.state_dict, f"step_idx.pth")
 
                 if len(batch) < BATCH_SIZE:
                     continue

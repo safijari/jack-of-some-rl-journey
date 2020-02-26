@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-from random import choice, seed
+from random import choice, seed, randint
 from dataclasses import dataclass
 from enum import Enum
 import os
@@ -40,9 +40,10 @@ action_dir_map = {
 }
 
 class Env:
-    def __init__(self, grid_size=40, seed=None):
+    def __init__(self, grid_size=40, seed=None, randomize_head=True):
         self.seed = seed
         self.gs = grid_size
+        self.randomize_head = randomize_head
         self.reset()
         self.seed = seed
 
@@ -50,7 +51,11 @@ class Env:
         if self.seed:
             seed(self.seed)
         grid_size = self.gs
-        self.snake = Snake()
+        x, y = 0, 0
+        if self.randomize_head:
+            x = randint(0, self.gs-1)
+            y = randint(0, self.gs-1)
+        self.snake = Snake(x, y)
 
         pos_list = []
         for i in range(grid_size):
@@ -127,10 +132,10 @@ class Env:
 
 
 class Snake:
-    def __init__(self):
-        self.head = Point(0, 0)
+    def __init__(self, x: int = 0, y: int = 0):
+        self.head = Point(x, y)
         self.tail = []
-        self.tail_size = 2
+        self.tail_size = 0
         self.direction = Point(1, 0)  # Need to add validation later
 
     def self_collision(self):
