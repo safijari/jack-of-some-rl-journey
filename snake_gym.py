@@ -17,11 +17,10 @@ KEYWORD_TO_KEY = {
 }
 
 action_map = {
-    0: None,
-    1: 'up',
-    2: 'down',
-    3: 'left',
-    4: 'right'
+    0: 'up',
+    1: 'down',
+    2: 'left',
+    3: 'right'
 }
 
 
@@ -39,7 +38,7 @@ class SnakeEnv(gym.Env):
         super(SnakeEnv, self).__init__()
         self.env = Env(4)
         self.viewer = None
-        self.action_space = spaces.Discrete(5)
+        self.action_space = spaces.Discrete(4)
         self.observation_space = spaces.Box(
             low=0, high=255, shape=(self.env.gs, self.env.gs, 3),
             dtype=np.uint8)

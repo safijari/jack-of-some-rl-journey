@@ -79,7 +79,7 @@ def main(shape=10, winsize=4, test=False, num_max_test=200):
     env.seed(123)
 
     input_shape = (WINDOW_LENGTH,) + INPUT_SHAPE
-    model = make_model(input_shape, 5)
+    model = make_model(input_shape, 4)
 
     memory = SequentialMemory(limit=100000, window_length=WINDOW_LENGTH)
     processor = SnakeProcessor()
@@ -92,7 +92,7 @@ def main(shape=10, winsize=4, test=False, num_max_test=200):
     interval = 20000
 
     dqn = DQNAgent(model=model,
-                   nb_actions=5,
+                   nb_actions=4,
                    policy=policy,
                    memory=memory,
                    processor=processor,
