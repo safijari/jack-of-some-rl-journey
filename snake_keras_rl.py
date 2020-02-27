@@ -87,7 +87,7 @@ def main(shape=10, winsize=4, test=False, num_max_test=200):
     # policy = LinearAnnealedPolicy(
     #     EpsGreedyQPolicy(), attr='eps', value_max=1., value_min=.1,
     #     value_test=0, nb_steps=500000)
-    policy = BoltzmannQPolicy()
+    policy = BoltzmannQPolicy(tau=0.5)
 
     interval = 20000
 

@@ -37,7 +37,7 @@ class SnakeEnv(gym.Env):
     metadata = {'render.modes': ['human', 'rgb_array']}
     def __init__(self):
         super(SnakeEnv, self).__init__()
-        self.env = Env(10)
+        self.env = Env(4)
         self.viewer = None
         self.action_space = spaces.Discrete(5)
         self.observation_space = spaces.Box(
