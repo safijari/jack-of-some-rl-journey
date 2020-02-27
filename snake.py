@@ -40,7 +40,9 @@ action_dir_map = {
 }
 
 class Env:
-    def __init__(self, grid_size=40, seed=None, randomize_head=True):
+    def __init__(self, grid_size=40, seed=None, randomize_head=True, rand_grid_loc_always=True):
+        self.rand_grid_loc_always = rand_grid_loc_always
+        self.subgrid_loc = None
         self.full_gs = 40
         self.seed = seed
         self.gs = grid_size
@@ -50,7 +52,8 @@ class Env:
         self.seed = seed
 
     def reset(self):
-        self.subgrid_loc = Point(randint(0, self.full_gs - self.gs - 1), randint(0, self.full_gs - self.gs - 1))
+        if (not self.subgrid_loc) or (self.subgrid_loc and self.rand_grid_loc_always):
+            self.subgrid_loc = Point(randint(0, self.full_gs - self.gs - 1), randint(0, self.full_gs - self.gs - 1))
         if self.seed:
             seed(self.seed)
         grid_size = self.gs
@@ -143,7 +146,7 @@ class Snake:
     def __init__(self, x: int = 0, y: int = 0):
         self.head = Point(x, y)
         self.tail = []
-        self.tail_size = 100
+        self.tail_size = 2
         self.direction = Point(1, 0)  # Need to add validation later
 
     def self_collision(self):

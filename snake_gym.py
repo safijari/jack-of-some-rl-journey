@@ -37,9 +37,9 @@ reward_map = {
 
 class SnakeEnv(gym.Env):
     metadata = {'render.modes': ['human', 'rgb_array']}
-    def __init__(self, gs=10, human_mode_sleep=0.05, seed=None, use_running_log=False, allow_viz=False):
+    def __init__(self, gs=10, human_mode_sleep=0.05, seed=None, use_running_log=False, allow_viz=False, rand_grid_loc_always=True):
         super(SnakeEnv, self).__init__()
-        self.env = Env(gs, seed=seed)
+        self.env = Env(gs, seed=seed, rand_grid_loc_always=rand_grid_loc_always)
         self.human_mode_sleep = human_mode_sleep
         self.running_log = []
         self.use_running_log = use_running_log

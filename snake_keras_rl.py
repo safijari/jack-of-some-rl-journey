@@ -1,4 +1,5 @@
 import argh
+import traceback
 import os
 import time
 import gym
@@ -45,22 +46,25 @@ def make_model(shape, num_actions):
     model.add(Permute((2, 3, 1), input_shape=shape))
     model.add(Convolution2D(32, (1, 1), padding='same'))
     model.add(Activation('relu'))
-    model.add(Convolution2D(64, (1, 1), padding='same'))
+    model.add(Convolution2D(32, (1, 1), padding='same'))
+    model.add(Activation('relu'))
+    model.add(Convolution2D(64, (3, 3), padding='same'))
+    model.add(MaxPooling2D())
+    model.add(Activation('relu'))
+    model.add(Convolution2D(64, (3, 3), padding='same'))
+    model.add(MaxPooling2D())
     model.add(Activation('relu'))
     model.add(Convolution2D(128, (3, 3), padding='same'))
     model.add(MaxPooling2D())
     model.add(Activation('relu'))
-    model.add(Convolution2D(256, (3, 3), padding='same'))
+    model.add(Convolution2D(128, (3, 3), padding='same'))
     model.add(MaxPooling2D())
     model.add(Activation('relu'))
-    model.add(Convolution2D(256, (3, 3), padding='same'))
-    model.add(MaxPooling2D())
-    model.add(Activation('relu'))
-    model.add(Convolution2D(256, (3, 3), padding='same'))
+    model.add(Convolution2D(128, (3, 3), padding='same'))
     model.add(MaxPooling2D())
     model.add(Activation('relu'))
     model.add(Flatten())
-    model.add(Dense(512))
+    model.add(Dense(256))
     model.add(Activation('relu'))
     model.add(Dense(num_actions))
     model.add(Activation('linear'))
@@ -113,7 +117,7 @@ def main(shape=4, winsize=2, test=False, num_max_test=200, visualize_training=Fa
         print(f"failed to intify seed of {randseed}, making it None")
         randseed = None
 
-    env = gym.make('snakenv-v0', gs=shape, seed=randseed, human_mode_sleep=human_mode_sleep)
+    env = gym.make('snakenv-v0', gs=shape, seed=randseed, human_mode_sleep=human_mode_sleep, rand_grid_loc_always=(not test))
     np.random.seed(123)
     env.seed(123)
 
@@ -121,7 +125,7 @@ def main(shape=4, winsize=2, test=False, num_max_test=200, visualize_training=Fa
     input_shape = (WINDOW_LENGTH,) + INPUT_SHAPE
     model = make_model(input_shape, 4)
 
-    memory = SequentialMemory(limit=100000, window_length=WINDOW_LENGTH)
+    memory = SequentialMemory(limit=1000000, window_length=WINDOW_LENGTH)
     processor = SnakeProcessor()
 
     start_policy = LinearAnnealedPolicy(
@@ -129,7 +133,7 @@ def main(shape=4, winsize=2, test=False, num_max_test=200, visualize_training=Fa
         value_test=0, nb_steps=500000)
     policy = BoltzmannQPolicy(tau=0.25)
 
-    interval = 20000
+    interval = 5000
 
     dqn = DQNAgent(model=model,
                    nb_actions=4,
@@ -168,9 +172,12 @@ def main(shape=4, winsize=2, test=False, num_max_test=200, visualize_training=Fa
     else:
         while True:
             try:
-                dqn.load_weights(weights_filename)
+                model.load_weights(weights_filename)
             except Exception:
                 print("weights not found, waiting")
+                traceback.print_exc()
+                time.sleep(10)
+                continue
             dqn.test(env, nb_episodes=10, visualize=visualize_training, nb_max_episode_steps=num_max_test)
             time.sleep(3)
 
