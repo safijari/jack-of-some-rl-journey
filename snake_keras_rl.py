@@ -53,8 +53,14 @@ def make_model(shape, num_actions):
     model.add(Convolution2D(256, (3, 3), padding='same'))
     model.add(MaxPooling2D())
     model.add(Activation('relu'))
+    model.add(Convolution2D(256, (3, 3), padding='same'))
+    model.add(MaxPooling2D())
+    model.add(Activation('relu'))
+    model.add(Convolution2D(256, (3, 3), padding='same'))
+    model.add(MaxPooling2D())
+    model.add(Activation('relu'))
     model.add(Flatten())
-    model.add(Dense(256))
+    model.add(Dense(512))
     model.add(Activation('relu'))
     model.add(Dense(num_actions))
     model.add(Activation('linear'))
@@ -79,12 +85,13 @@ def make_model(shape, num_actions):
 #     return model
 
 
-def main(shape=10, winsize=4, test=False, num_max_test=200, visualize_training=False, start_steps=0, randseed=None, human_mode_sleep=0.02):
-    INPUT_SHAPE = (shape, shape)
+def main(shape=4, winsize=2, test=False, num_max_test=200, visualize_training=False, start_steps=0, randseed=None, human_mode_sleep=0.02):
+    INPUT_SHAPE = (40, 40)
     WINDOW_LENGTH = winsize
 
     class SnakeProcessor(Processor):
         def process_observation(self, observation):
+            observation = observation[:, :, 0]
             # assert observation.ndim == 1, str(observation.shape)  # (height, width, channel)
             assert observation.shape == INPUT_SHAPE
             return observation.astype('uint8')  # saves storage in experience memory
@@ -110,8 +117,9 @@ def main(shape=10, winsize=4, test=False, num_max_test=200, visualize_training=F
     np.random.seed(123)
     env.seed(123)
 
+    # input_shape = (WINDOW_LENGTH,) + INPUT_SHAPE
     input_shape = (WINDOW_LENGTH,) + INPUT_SHAPE
-    model = make_model(input_shape, 5)
+    model = make_model(input_shape, 4)
 
     memory = SequentialMemory(limit=100000, window_length=WINDOW_LENGTH)
     processor = SnakeProcessor()
@@ -124,7 +132,7 @@ def main(shape=10, winsize=4, test=False, num_max_test=200, visualize_training=F
     interval = 20000
 
     dqn = DQNAgent(model=model,
-                   nb_actions=5,
+                   nb_actions=4,
                    policy=policy,
                    memory=memory,
                    processor=processor,

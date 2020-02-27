@@ -41,13 +41,16 @@ action_dir_map = {
 
 class Env:
     def __init__(self, grid_size=40, seed=None, randomize_head=True):
+        self.full_gs = 40
         self.seed = seed
         self.gs = grid_size
+        assert self.gs <= self.full_gs
         self.randomize_head = randomize_head
         self.reset()
         self.seed = seed
 
     def reset(self):
+        self.subgrid_loc = Point(randint(0, self.full_gs - self.gs - 1), randint(0, self.full_gs - self.gs - 1))
         if self.seed:
             seed(self.seed)
         grid_size = self.gs
@@ -64,7 +67,7 @@ class Env:
 
         self.pos_set = set(pos_list)
         self.fruit_location = None
-        # self.set_fruit()
+        self.set_fruit()
 
 
     def to_dict(self):
@@ -87,7 +90,7 @@ class Env:
 
         if not self._bounds_check(snake.head) or self.snake.self_collision():
             out_enum = SnakeState.DED
-        elif True:  # snake.head == self.fruit_location:
+        elif snake.head == self.fruit_location:
             try:
                 self.set_fruit()
                 self.snake.tail_size += 1
@@ -101,7 +104,7 @@ class Env:
 
     @property
     def fruit_loc(self):
-        # assert self.fruit_location is not None, "Fruit hasn't been initialized"
+        assert self.fruit_location is not None, "Fruit hasn't been initialized"
         return self.fruit_location
 
     def set_fruit(self):
@@ -113,29 +116,34 @@ class Env:
     def _bounds_check(self, pos):
         return pos.x >= 0 and pos.x < self.gs and pos.y >= 0 and pos.y < self.gs
 
-    def to_image(self, gradation=False):
+    def to_image(self, gradation=True):
         snake = self.snake
-        out = np.zeros((self.gs, self.gs, 3), 'uint8')
-        # fl = self.fruit_loc
-        # out[fl.y, fl.x] = 255
+        out_full = np.zeros((self.full_gs, self.full_gs, 3), 'uint8') + 0
+        out = out_full[self.subgrid_loc.y:self.subgrid_loc.y + self.gs, self.subgrid_loc.x:self.subgrid_loc.x + self.gs, :]
+        out[:, :, :] = 128
+        fl = self.fruit_loc
+        out[fl.y, fl.x, -1] = 255
 
         l = ([snake.head] + snake.tail[::-1])[::-1]
 
         for i, s in enumerate(l):
             if self._bounds_check(s):
                 if gradation:
-                    out[s.y, s.x] = 100 + 100.0/len(l)*i
+                    out[s.y, s.x, 1] = 255
+                    out[s.y, s.x, 0] = 0 + 255/len(l)*i
+                    out[s.y, s.x, 2] = 255 - 255/len(l)*i
                 else:
                     out[s.y, s.x] = 128
 
-        return np.expand_dims(cv2.cvtColor(out, cv2.COLOR_BGR2GRAY), -1)
+        # return np.expand_dims(cv2.cvtColor(out, cv2.COLOR_BGR2GRAY), -1)
+        return out_full
 
 
 class Snake:
     def __init__(self, x: int = 0, y: int = 0):
         self.head = Point(x, y)
         self.tail = []
-        self.tail_size = 0
+        self.tail_size = 100
         self.direction = Point(1, 0)  # Need to add validation later
 
     def self_collision(self):

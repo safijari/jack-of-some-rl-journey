@@ -1,4 +1,5 @@
 import gym
+import traceback
 import os
 import numpy as np
 from gym.utils import play
@@ -12,10 +13,10 @@ import cv2
 
 
 KEYWORD_TO_KEY = {
-    (ord('i'), ): 1,
-    (ord('k'), ): 2,
-    (ord('j'), ): 3,
-    (ord('l'), ): 4,
+    (ord('i'), ): 0,
+    (ord('k'), ): 1,
+    (ord('j'), ): 2,
+    (ord('l'), ): 3,
 }
 
 action_map = {
@@ -27,7 +28,7 @@ action_map = {
 
 
 reward_map = {
-    SnakeState.OK: 0,
+    SnakeState.OK: -0.001,
     SnakeState.ATE: 1,
     SnakeState.DED: -1,
     SnakeState.WON: 1
@@ -80,7 +81,6 @@ class SnakeEnv(gym.Env):
         return self.render('other')
 
     def render(self, mode='human', close=False):
-        im = self.env.to_image()
         if mode == 'human':
             from gym.envs.classic_control import rendering
             if self.viewer is None:
@@ -91,11 +91,15 @@ class SnakeEnv(gym.Env):
             im = self.env.to_image(True)
 
             im = cv2.resize(im, (640, 640), interpolation=0)
-            im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
+            # im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
 
             self.viewer.imshow(im)
             time.sleep(self.human_mode_sleep)
             return self.viewer.isopen
+        elif mode == 'other':
+            # im = self.env.to_image()
+            return self.env.to_image()
+            # return np.expand_dims(cv2.resize(im[:,:,0], (40, 40), interpolation=0), -1)
         elif mode == 'jack':
             from gym.envs.classic_control import rendering
             if self.viewer is None:
@@ -106,11 +110,13 @@ class SnakeEnv(gym.Env):
             self.viewer.imshow(cv2.resize(self.env.to_image(), (640, 640), interpolation=0))
             return self.viewer.isopen
         else:
-            return np.expand_dims(cv2.resize(im[:,:,0], (84, 84), interpolation=0), -1)
+            im = self.env.to_image()
+            return cv2.resize(im[:,:,::-1], (640, 640), interpolation=0)
 
 try:
     gym.envs.register(id="snakenv-v0", entry_point='snake_gym:SnakeEnv')
 except Exception:
+    traceback.print_exc()
     print('already done?')
 
 if __name__ == '__main__':
