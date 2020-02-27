@@ -28,7 +28,7 @@ action_map = {
 
 
 reward_map = {
-    SnakeState.OK: -0.001,
+    SnakeState.OK: -0.01,
     SnakeState.ATE: 1,
     SnakeState.DED: -1,
     SnakeState.WON: 1
@@ -37,9 +37,9 @@ reward_map = {
 
 class SnakeEnv(gym.Env):
     metadata = {'render.modes': ['human', 'rgb_array']}
-    def __init__(self, gs=10, human_mode_sleep=0.05, seed=None, use_running_log=False, allow_viz=False, rand_grid_loc_always=True):
+    def __init__(self, gs=10, human_mode_sleep=0.05, seed=None, use_running_log=False, allow_viz=False, rand_grid_loc_always=True, full_grid_size=40):
         super(SnakeEnv, self).__init__()
-        self.env = Env(gs, seed=seed, rand_grid_loc_always=rand_grid_loc_always)
+        self.env = Env(gs, seed=seed, rand_grid_loc_always=rand_grid_loc_always, full_grid_size=full_grid_size)
         self.human_mode_sleep = human_mode_sleep
         self.running_log = []
         self.use_running_log = use_running_log
@@ -88,10 +88,10 @@ class SnakeEnv(gym.Env):
                 self.viewer.height = 640
                 self.viewer.width = 640
 
-            im = self.env.to_image(True)
+            im = self.env.to_image(False)
 
             im = cv2.resize(im, (640, 640), interpolation=0)
-            # im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
+            im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
 
             self.viewer.imshow(im)
             time.sleep(self.human_mode_sleep)

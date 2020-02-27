@@ -40,10 +40,10 @@ action_dir_map = {
 }
 
 class Env:
-    def __init__(self, grid_size=40, seed=None, randomize_head=True, rand_grid_loc_always=True):
+    def __init__(self, grid_size=40, seed=None, randomize_head=True, rand_grid_loc_always=True, full_grid_size=40):
         self.rand_grid_loc_always = rand_grid_loc_always
         self.subgrid_loc = None
-        self.full_gs = 40
+        self.full_gs = full_grid_size
         self.seed = seed
         self.gs = grid_size
         assert self.gs <= self.full_gs
@@ -53,7 +53,7 @@ class Env:
 
     def reset(self):
         if (not self.subgrid_loc) or (self.subgrid_loc and self.rand_grid_loc_always):
-            self.subgrid_loc = Point(randint(0, self.full_gs - self.gs - 1), randint(0, self.full_gs - self.gs - 1))
+            self.subgrid_loc = Point(randint(0, self.full_gs - self.gs), randint(0, self.full_gs - self.gs ))
         if self.seed:
             seed(self.seed)
         grid_size = self.gs
@@ -119,13 +119,13 @@ class Env:
     def _bounds_check(self, pos):
         return pos.x >= 0 and pos.x < self.gs and pos.y >= 0 and pos.y < self.gs
 
-    def to_image(self, gradation=True):
+    def to_image(self, gradation=False):
         snake = self.snake
         out_full = np.zeros((self.full_gs, self.full_gs, 3), 'uint8') + 0
         out = out_full[self.subgrid_loc.y:self.subgrid_loc.y + self.gs, self.subgrid_loc.x:self.subgrid_loc.x + self.gs, :]
-        out[:, :, :] = 128
+        out[:, :, :] = 32
         fl = self.fruit_loc
-        out[fl.y, fl.x, -1] = 255
+        out[fl.y, fl.x, :] = 255
 
         l = ([snake.head] + snake.tail[::-1])[::-1]
 
@@ -133,13 +133,15 @@ class Env:
             if self._bounds_check(s):
                 if gradation:
                     out[s.y, s.x, 1] = 255
-                    out[s.y, s.x, 0] = 0 + 255/len(l)*i
-                    out[s.y, s.x, 2] = 255 - 255/len(l)*i
+                    out[s.y, s.x, 0] = 100 + 100/len(l)*i
+                    out[s.y, s.x, 2] = 200 - 100/len(l)*i
                 else:
                     out[s.y, s.x] = 128
 
-        # return np.expand_dims(cv2.cvtColor(out, cv2.COLOR_BGR2GRAY), -1)
-        return out_full
+        if not gradation:
+            return np.expand_dims(cv2.cvtColor(out, cv2.COLOR_BGR2GRAY), -1)
+        else:
+            return out_full
 
 
 class Snake:
