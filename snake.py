@@ -38,9 +38,14 @@ class Env:
         self.reset()
 
     def reset(self):
+        self.step = 0
+        self.last_ate = 0
         # if (not self.subgrid_loc): # or (self.subgrid_loc and self.rand_grid_loc_always):
         # self.gs = randint(5, 40)
         grid_size = self.gs
+        a = self.gs ** 2
+        self.stamina = a + len(self.snake.tail) + 1
+        self.stamina = min(a * 2, stamina)
         self.subgrid_loc = Point(randint(0, self.main_gs - self.gs), randint(0, self.main_gs - self.gs))
         self.snake = Snake()
 
@@ -53,10 +58,9 @@ class Env:
         self.fruit_location = None
         self.set_fruit()
 
-
     def update(self, direction=None):
         snake = self.snake
-        self.snake.apply_direction(direction)
+        self.snake.apply_turn(direction)
         self.snake.update()
         out_enum = SnakeState.OK
 
@@ -143,7 +147,7 @@ class Snake:
         shift = 1 if turn_dir == 'left' else -1
         self.dir_idx = (self.dir_idx + shift) % 4
         action = action_dir_order[self.dir_idx]
-        self.apply_direction(self, new_dir=action)
+        self.apply_direction(new_dir=action)
 
     def apply_direction(self, new_dir=None):
         if not new_dir:

@@ -24,8 +24,8 @@ action_map = {
 reward_map = {
     SnakeState.OK: 0,
     SnakeState.ATE: 1,
-    SnakeState.DED: -100,
-    SnakeState.WON: 1
+    SnakeState.DED: -1,
+    SnakeState.WON: 5
 }
 
 
@@ -35,7 +35,7 @@ class SnakeEnv(gym.Env):
         super(SnakeEnv, self).__init__()
         self.env = Env(gs, main_gs=main_gs)
         self.viewer = None
-        self.action_space = spaces.Discrete(4)
+        self.action_space = spaces.Discrete(3)
         self.observation_space = spaces.Box(
             low=0, high=255, shape=(self.env.gs, self.env.gs, 3),
             dtype=np.uint8)
@@ -95,4 +95,4 @@ if __name__ == '__main__':
     env = gym.make('snakenv-v0')
     # env = SnakeEnv()
     play.keys_to_action = KEYWORD_TO_KEY
-    play.play(env, fps=5, keys_to_action=KEYWORD_TO_KEY, callback=callback)
+    play.play(env, fps=1, keys_to_action=KEYWORD_TO_KEY, callback=callback)

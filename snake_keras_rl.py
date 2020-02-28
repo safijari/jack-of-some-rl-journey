@@ -106,7 +106,7 @@ def main(main_grid_shape=40, shape=4, winsize=2, test=False, num_max_test=200):
     env.seed(123)
 
     input_shape = (WINDOW_LENGTH,) + INPUT_SHAPE
-    model = make_model(input_shape, 4)
+    model = make_model(input_shape, 3)
 
     processor = SnakeProcessor()
 
@@ -118,7 +118,7 @@ def main(main_grid_shape=40, shape=4, winsize=2, test=False, num_max_test=200):
     interval = 10000
 
     dqn = DQNAgent(model=model,
-                   nb_actions=4,
+                   nb_actions=3,
                    enable_double_dqn=True,
                    policy=policy,
                    memory=memory,
