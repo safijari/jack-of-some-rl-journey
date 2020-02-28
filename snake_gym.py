@@ -10,33 +10,30 @@ import cv2
 
 
 KEYWORD_TO_KEY = {
-    (ord('i'), ): 1,
-    (ord('k'), ): 2,
-    (ord('j'), ): 3,
-    (ord('l'), ): 4,
+    (ord('j'), ): 1,
+    (ord('l'), ): 2,
 }
 
 action_map = {
-    0: 'up',
-    1: 'down',
-    2: 'left',
-    3: 'right'
+    0: None,
+    1: 'left',
+    2: 'right'
 }
 
 
 reward_map = {
-    SnakeState.OK: -0.01,
+    SnakeState.OK: 0,
     SnakeState.ATE: 1,
-    SnakeState.DED: -1,
+    SnakeState.DED: -100,
     SnakeState.WON: 1
 }
 
 
 class SnakeEnv(gym.Env):
     metadata = {'render.modes': ['human', 'rgb_array']}
-    def __init__(self):
+    def __init__(self, gs=10, main_gs=10):
         super(SnakeEnv, self).__init__()
-        self.env = Env(4)
+        self.env = Env(gs, main_gs=main_gs)
         self.viewer = None
         self.action_space = spaces.Discrete(4)
         self.observation_space = spaces.Box(
@@ -45,7 +42,10 @@ class SnakeEnv(gym.Env):
 
     def step(self, action):
         enum = self.env.update(action_map[action])
-        return self.env.to_image(), reward_map[enum], (enum in [SnakeState.DED, SnakeState.WON]), {}
+        rew = reward_map[enum]
+        # rew = rew/self.env.gs**2
+
+        return self.env.to_image(), rew, (enum in [SnakeState.DED, SnakeState.WON]), {}
 
     def reset(self):
         self.env.reset()

@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-from random import choice
+from random import choice, randint
 from dataclasses import dataclass
 from enum import Enum
 
@@ -28,13 +28,20 @@ action_dir_map = {
     'right': Point(1, 0)
 }
 
+action_dir_order = ['right', 'up', 'left', 'down']
+
 class Env:
-    def __init__(self, grid_size=40):
+    def __init__(self, grid_size=10, main_gs=10):
         self.gs = grid_size
+        self.subgrid_loc = None
+        self.main_gs = main_gs
         self.reset()
 
     def reset(self):
+        # if (not self.subgrid_loc): # or (self.subgrid_loc and self.rand_grid_loc_always):
+        # self.gs = randint(5, 40)
         grid_size = self.gs
+        self.subgrid_loc = Point(randint(0, self.main_gs - self.gs), randint(0, self.main_gs - self.gs))
         self.snake = Snake()
 
         pos_list = []
@@ -83,15 +90,21 @@ class Env:
 
     def to_image(self):
         snake = self.snake
-        out = np.zeros((self.gs, self.gs, 3), 'uint8')
+        out_main = np.zeros((self.main_gs, self.main_gs, 3), 'uint8')
+        l = self.subgrid_loc
+        out = out_main[l.y:l.y+self.gs, l.x:l.x+self.gs]
+        out[:, :] = 32
         fl = self.fruit_loc
         out[fl.y, fl.x] = 255
+        if self._bounds_check(snake.head):
+            out[snake.head.y, snake.head.x] = 128 + 32
 
-        for s in [snake.head] + snake.tail:
+        for i, s in enumerate(reversed(snake.tail)):
             if self._bounds_check(s):
+                # out[s.y, s.x] = int((64 + 50) + 100 * np.sin(i/30))
                 out[s.y, s.x] = 128
 
-        return cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)
+        return cv2.cvtColor(out_main, cv2.COLOR_BGR2GRAY)
 
 
 class Snake:
@@ -100,6 +113,7 @@ class Snake:
         self.tail = []
         self.tail_size = 2
         self.direction = Point(1, 0)  # Need to add validation later
+        self.dir_idx = 0
 
     def self_collision(self):
         for t in self.tail:
@@ -121,6 +135,15 @@ class Snake:
         Tail: {self.tail}
         Dir: {self.direction}
         """
+
+    def apply_turn(self, turn_dir):
+        if not turn_dir:
+            return
+        assert turn_dir in ['left', 'right']
+        shift = 1 if turn_dir == 'left' else -1
+        self.dir_idx = (self.dir_idx + shift) % 4
+        action = action_dir_order[self.dir_idx]
+        self.apply_direction(self, new_dir=action)
 
     def apply_direction(self, new_dir=None):
         if not new_dir:
