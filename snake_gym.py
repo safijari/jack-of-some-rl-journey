@@ -92,7 +92,7 @@ if __name__ == '__main__':
             callback.rew = rew
         print(callback.rew)
 
-    env = gym.make('snakenv-v0')
+    env = gym.make('snakenv-v0', gs=10)
     # env = SnakeEnv()
     play.keys_to_action = KEYWORD_TO_KEY
-    play.play(env, fps=1, keys_to_action=KEYWORD_TO_KEY, callback=callback)
+    play.play(env, fps=10, keys_to_action=KEYWORD_TO_KEY, callback=callback)

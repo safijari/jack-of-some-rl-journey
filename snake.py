@@ -30,10 +30,21 @@ action_dir_map = {
 
 action_dir_order = ['right', 'up', 'left', 'down']
 
+
+def draw_boxes(canvas, j, i, color, padding=2, scale=4):
+    canvas[j*scale+padding:j*scale+(scale-padding), i*scale+padding:i*scale+(scale-padding)] = color
+
+def connect_boxes(canvas, j1, i1, j2, i2, color, padding=2, scale=4):
+    J1 = min(j1*scale+padding, j1*scale+(scale-padding))
+    J2 = max(j2*scale+padding, j2*scale+(scale-padding))
+    I1 = min(i1*scale+padding, i1*scale+(scale-padding))
+    I2 = max(i2*scale+padding, i2*scale+(scale-padding))
+    canvas[J1:J2, I1:I2] = color
+
 class Env:
     def __init__(self, grid_size=10, main_gs=10):
         self.gs = grid_size
-        self.subgrid_loc = None
+        # self.subgrid_loc = None
         self.main_gs = main_gs
         self.reset()
 
@@ -43,10 +54,7 @@ class Env:
         # if (not self.subgrid_loc): # or (self.subgrid_loc and self.rand_grid_loc_always):
         # self.gs = randint(5, 40)
         grid_size = self.gs
-        a = self.gs ** 2
-        self.stamina = a + len(self.snake.tail) + 1
-        self.stamina = min(a * 2, stamina)
-        self.subgrid_loc = Point(randint(0, self.main_gs - self.gs), randint(0, self.main_gs - self.gs))
+        # self.subgrid_loc = Point(randint(0, self.main_gs - self.gs), randint(0, self.main_gs - self.gs))
         self.snake = Snake()
 
         pos_list = []
@@ -58,7 +66,15 @@ class Env:
         self.fruit_location = None
         self.set_fruit()
 
+    @property
+    def stamina(self):
+        a = self.gs ** 2
+        stamina = a + len(self.snake.tail) + 1
+        stamina = min(a * 2, stamina)
+        return stamina
+
     def update(self, direction=None):
+        self.last_ate += 1
         snake = self.snake
         self.snake.apply_turn(direction)
         self.snake.update()
@@ -67,12 +83,15 @@ class Env:
         if not self._bounds_check(snake.head) or self.snake.self_collision():
             out_enum = SnakeState.DED
         elif snake.head == self.fruit_location:
+            self.last_ate = 0
             try:
                 self.set_fruit()
                 self.snake.tail_size += 1
                 out_enum = SnakeState.ATE
             except IndexError:
                 out_enum = SnakeState.WON
+        elif self.last_ate > self.stamina:
+            out_enum = SnakeState.DED
 
         self.snake.shed()
 
@@ -94,22 +113,40 @@ class Env:
 
     def to_image(self):
         snake = self.snake
-        out_main = np.zeros((self.main_gs, self.main_gs, 3), 'uint8')
-        l = self.subgrid_loc
-        out = out_main[l.y:l.y+self.gs, l.x:l.x+self.gs]
-        out[:, :] = 32
+        # out_main = np.zeros((self.main_gs, self.main_gs, 3), 'uint8')
+        # l = self.subgrid_loc
+        # out = out_main[l.y:l.y+self.gs, l.x:l.x+self.gs]
+        # out[:, :] = 32
         fl = self.fruit_loc
-        out[fl.y, fl.x] = 255
+        # out[fl.y, fl.x] = 255
+        # if self._bounds_check(snake.head):
+        #     out[snake.head.y, snake.head.x] = 128 + 32
+
+        # for i, s in enumerate(reversed(snake.tail)):
+        #     if self._bounds_check(s):
+        #         out[s.y, s.x] = 128
+
+        # return cv2.resize(out_main, (128, 128), interpolation=0)[:, :, 0:1]
+
+        scale = 8
+
+        canvas = np.zeros((self.gs*scale, self.gs*scale), 'uint8') + 32
+
+        draw_boxes(canvas, fl.y, fl.x, 255, scale=scale, padding=1)
+
         if self._bounds_check(snake.head):
-            out[snake.head.y, snake.head.x] = 128 + 32
+            draw_boxes(canvas, snake.head.y, snake.head.x, 128, 1, scale=scale)
+
+        last_el = snake.head
 
         for i, s in enumerate(reversed(snake.tail)):
-            if self._bounds_check(s):
-                # out[s.y, s.x] = int((64 + 50) + 100 * np.sin(i/30))
-                out[s.y, s.x] = 128
+            if self._bounds_check(s) and self._bounds_check(last_el):
+                # draw_boxes(canvas, s.y, s.x, 128, scale=scale)
+                connect_boxes(canvas, last_el.y, last_el.x, s.y, s.x,128, scale=scale, padding=2)
+                connect_boxes(canvas, s.y, s.x,last_el.y, last_el.x, 128, scale=scale, padding=2)
+                last_el = s
 
-        return cv2.cvtColor(out_main, cv2.COLOR_BGR2GRAY)
-
+        return np.expand_dims(cv2.resize(canvas, (128, 128), interpolation=0), -1)
 
 class Snake:
     def __init__(self):
