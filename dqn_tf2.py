@@ -255,7 +255,7 @@ def get_episodes(env, model, num_episodes):
 def main():
     total_steps = 1000000
     batch_size = 0
-    target_model_steps = 1000
+    target_model_steps = 100
     test_steps = 100
 
     wandb.init(project='tf2-messing-around')
@@ -267,7 +267,7 @@ def main():
     replay = EpisodicReplayBuffer(100000)
 
     episodes = []
-    while len(replay) < 500:
+    while len(replay) < 5000:
         for ep in get_episodes(env, model, 10):
             replay.add_new_episode(ep)
 
@@ -284,7 +284,7 @@ def main():
         if i and i % target_model_steps == 0:
             model.update_target()
         if i % test_steps:
-            rew = np.mean([run_full_episode(env, model, test=True).total_rew for i in range(5)])
+            rew = np.mean([run_full_episode(env, model, test=True).total_rew for _ in range(5)])
             wandb.log({'test_reward': rew}, step=i)
 
         wandb.log({'loss': loss, 'average_episode_reward': np.mean(replay.episode_reward_counter)}, step=i)
