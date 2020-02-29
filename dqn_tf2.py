@@ -169,7 +169,7 @@ class Episode:
         l = [f"(Episode) Total reward: {self.total_rew}"] + [str(e) for e in self.exps]
         return '\n'.join(l)
 
-def run_full_episode(env, model: SnakeModel, override_eps=0, render_time=0, test=False):
+def run_full_episode(env, model: SnakeModel, eps_fn=lambda x: 0.5, render_time=0, test=False):
     exps = []
     state = env.reset()
     if render_time:
@@ -177,11 +177,14 @@ def run_full_episode(env, model: SnakeModel, override_eps=0, render_time=0, test
         time.sleep(render_time)
     done = False
 
+    score_so_far = 0
     while not done:
-        action = int(model.predict(state, stochastic=(not test), override_eps=override_eps))
+        override_eps = eps_fn(score_so_far)
+        action = int(model.predict(tf.convert_to_tensor(state), stochastic=(not test), override_eps=tf.convert_to_tensor(override_eps)))
         state_old = state
         state, rew, done, _ = env.step(action)
         exps.append(Exp(state_old, state, action, rew, 0, done))
+        score_so_far += rew
 
         if render_time:
             env.render()
@@ -244,8 +247,8 @@ def experience_samples_to_training_input(samples):
 
     return tf.convert_to_tensor(np.stack(obs, 0)), tf.convert_to_tensor(actions, dtype='int32'), tf.convert_to_tensor(rewards, dtype='float32'), tf.convert_to_tensor(np.stack(obs_next, 0)), tf.convert_to_tensor(dones, dtype='bool')
 
-def get_episodes(env, model, num_episodes, eps=0.5):
-    episodes = [run_full_episode(env, model, override_eps=eps)
+def get_episodes(env, model, num_episodes, eps_fn = lambda x: 0.5):
+    episodes = [run_full_episode(env, model, eps_fn)
                 for i in range(int(num_episodes*3))]
     episodes = sorted(episodes, key=lambda e: e.total_rew)[-num_episodes:]
     return episodes
@@ -268,6 +271,7 @@ def main():
     main_gs = gs
     max_possible_reward = gs**2 - 2
     eps = 0.8,
+    avg_test_rewards = 0
     cfg = RunCfg(total_steps=1000000,
                  batch_size=64,
                  gs=gs,
@@ -286,12 +290,14 @@ def main():
 
     replay = EpisodicReplayBuffer(100000)
 
+    eps_fn = lambda score: float(get_step_eps(score, avg_test_rewards, 5, max_possible_reward, 0.01, 0.5))
+
     while len(replay) < 5000:
-        for ep in get_episodes(env, model, 10):
+        for ep in get_episodes(env, model, 10, eps_fn):
             replay.add_new_episode(ep)
 
     for i in tqdm(range(cfg.total_steps)):
-        for ep in get_episodes(env, model, 2, eps=eps):
+        for ep in get_episodes(env, model, 4, eps_fn):
             replay.add_new_episode(ep)
 
         sample = replay.sample_frames(cfg.batch_size, stacking=cfg.stacking)
@@ -311,12 +317,18 @@ def main():
 
         if len(last_test_rewards) >= 10:
             avg_test_rewards = float(np.mean(last_test_rewards))
-            # eps = max(0, 1 - avg_test_rewards/cfg.max_possible_reward)
-            eps = 0.1
 
         wandb.log({'loss': loss, 'average_episode_reward': np.mean(replay.episode_reward_counter),
                    'eps': eps}, step=i)
 
+
+def get_step_eps(curr_score, mean_score, mean_score_thresh, max_score, min_eps, max_eps):
+    if mean_score < mean_score_thresh:
+        return max_eps
+    elif curr_score < mean_score:
+        return min_eps
+    elif curr_score >= mean_score:
+        return min_eps + (max_eps - min_eps)/(max_score - mean_score) * (curr_score - mean_score + 1)
 
 if __name__ == '__main__':
     main()
