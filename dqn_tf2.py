@@ -247,9 +247,9 @@ def experience_samples_to_training_input(samples):
 
     return tf.convert_to_tensor(np.stack(obs, 0)), tf.convert_to_tensor(actions, dtype='int32'), tf.convert_to_tensor(rewards, dtype='float32'), tf.convert_to_tensor(np.stack(obs_next, 0)), tf.convert_to_tensor(dones, dtype='bool')
 
-def get_episodes(env, model, num_episodes, eps_fn = lambda x: 0.5):
+def get_episodes(env, model, num_episodes, eps_fn = lambda x: 0.5, multiplier=3):
     episodes = [run_full_episode(env, model, eps_fn)
-                for i in range(int(num_episodes*3))]
+                for i in range(int(num_episodes*multiplier))]
     episodes = sorted(episodes, key=lambda e: e.total_rew)[-num_episodes:]
     return episodes
 
@@ -297,7 +297,7 @@ def main():
             replay.add_new_episode(ep)
 
     for i in tqdm(range(cfg.total_steps)):
-        for ep in get_episodes(env, model, 4, eps_fn):
+        for ep in get_episodes(env, model, 1, eps_fn, multiplier=1):
             replay.add_new_episode(ep)
 
         sample = replay.sample_frames(cfg.batch_size, stacking=cfg.stacking)
