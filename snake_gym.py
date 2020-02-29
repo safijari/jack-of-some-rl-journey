@@ -1,4 +1,5 @@
 import gym
+from gym.envs.classic_control import rendering
 import numpy as np
 from gym.utils import play
 from gym import spaces
@@ -54,7 +55,6 @@ class SnakeEnv(gym.Env):
     def render(self, mode='human', close=False):
         im = self.env.to_image()
         if mode == 'human':
-            from gym.envs.classic_control import rendering
             if self.viewer is None:
                 self.viewer = rendering.SimpleImageViewer(maxwidth=640)
                 self.viewer.height = 640
@@ -68,7 +68,6 @@ class SnakeEnv(gym.Env):
             return self.viewer.isopen
             # return im
         elif mode == 'jack':
-            from gym.envs.classic_control import rendering
             if self.viewer is None:
                 self.viewer = rendering.SimpleImageViewer(maxwidth=640)
                 self.viewer.height = 640

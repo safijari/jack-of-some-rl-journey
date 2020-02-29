@@ -1,4 +1,5 @@
 import tensorflow as tf
+import os
 import cv2
 from tqdm import tqdm
 from typing import List
@@ -70,7 +71,8 @@ class SnakeModel(Model):
 
         batch_size = tf.shape(obs)[0]
         random_actions = tf.random.uniform(tf.stack([batch_size]), minval=0, maxval=self.num_actions, dtype=tf.int64)
-        eps = self.eps if not override_eps else override_eps
+        # eps = self.eps if override_eps <= 0 else override_eps
+        eps = override_eps
         chose_random = tf.random.uniform(tf.stack([batch_size]), minval=0, maxval=1, dtype=tf.float32) < eps
         stochastic_actions = tf.where(chose_random, random_actions, deterministic_actions)
         if update_eps >= 0:
@@ -242,48 +244,78 @@ def experience_samples_to_training_input(samples):
 
     return tf.convert_to_tensor(np.stack(obs, 0)), tf.convert_to_tensor(actions, dtype='int32'), tf.convert_to_tensor(rewards, dtype='float32'), tf.convert_to_tensor(np.stack(obs_next, 0)), tf.convert_to_tensor(dones, dtype='bool')
 
-def get_episodes(env, model, num_episodes):
-    episodes = [run_full_episode(env, model, override_eps=0.8)
+def get_episodes(env, model, num_episodes, eps=0.5):
+    episodes = [run_full_episode(env, model, override_eps=eps)
                 for i in range(int(num_episodes*3))]
     episodes = sorted(episodes, key=lambda e: e.total_rew)[-num_episodes:]
     return episodes
 
-def main():
-    total_steps = 1000000
-    batch_size = 64
-    target_model_steps = 1000
-    test_steps = 100
+@dataclass
+class RunCfg:
+    total_steps: int
+    batch_size: int
+    gs: int
+    main_gs: int
+    max_possible_reward: int
+    target_model_steps: int
+    test_steps: int
+    ending_eps: int
+    stacking: int
 
-    wandb.init(project='tf2-messing-around')
-    stacking = 1
-    model = SnakeModel((128, 128, stacking), 3)
+def main():
+    last_test_rewards = deque(maxlen=10)
+    gs = 6
+    main_gs = gs
+    max_possible_reward = gs**2 - 2
+    eps = 0.8,
+    cfg = RunCfg(total_steps=1000000,
+                 batch_size=64,
+                 gs=gs,
+                 main_gs=main_gs,
+                 max_possible_reward=max_possible_reward,
+                 target_model_steps=1000,
+                 test_steps=100,
+                 ending_eps=0.05,
+                 stacking=1)
+
+    wandb.init(project='tf2-messing-around',
+               config=vars(cfg))
+    model = SnakeModel((128, 128, cfg.stacking), 3)
     print(model.summary())
-    env = gym.make('snakenv-v0', gs=4, main_gs=4)
+    env = gym.make('snakenv-v0', gs=gs, main_gs=main_gs)
 
     replay = EpisodicReplayBuffer(100000)
 
-    episodes = []
     while len(replay) < 5000:
         for ep in get_episodes(env, model, 10):
             replay.add_new_episode(ep)
 
-    for i in tqdm(range(total_steps)):
-        for ep in get_episodes(env, model, 2):
+    for i in tqdm(range(cfg.total_steps)):
+        for ep in get_episodes(env, model, 2, eps=eps):
             replay.add_new_episode(ep)
 
-        sample = replay.sample_frames(batch_size, stacking=stacking)
+        sample = replay.sample_frames(cfg.batch_size, stacking=cfg.stacking)
         inp = experience_samples_to_training_input(sample)
         l = model.train(*inp)
 
         loss = float(tf.reduce_mean(l[0]))
 
-        if i and i % target_model_steps == 0:
+        if i and i % cfg.target_model_steps == 0:
             model.update_target()
-        if i % test_steps:
-            rew = np.mean([run_full_episode(env, model, test=True).total_rew for _ in range(5)])
+
+        if i % cfg.test_steps == 0:
+            render_time = 0.05 if os.path.exists('/tmp/vis') else 0
+            rew = np.mean([run_full_episode(env, model, test=True, render_time=render_time).total_rew for _ in range(5)])
+            last_test_rewards.append(rew)
             wandb.log({'test_reward': rew}, step=i)
 
-        wandb.log({'loss': loss, 'average_episode_reward': np.mean(replay.episode_reward_counter)}, step=i)
+        if len(last_test_rewards) >= 10:
+            avg_test_rewards = float(np.mean(last_test_rewards))
+            # eps = max(0, 1 - avg_test_rewards/cfg.max_possible_reward)
+            eps = 0.1
+
+        wandb.log({'loss': loss, 'average_episode_reward': np.mean(replay.episode_reward_counter),
+                   'eps': eps}, step=i)
 
 
 if __name__ == '__main__':

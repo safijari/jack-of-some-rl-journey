@@ -80,9 +80,8 @@ class Env:
         self.snake.update()
         out_enum = SnakeState.OK
 
-        if not self._bounds_check(snake.head) or self.snake.self_collision():
-            out_enum = SnakeState.DED
-        elif snake.head == self.fruit_location:
+
+        if snake.head == self.fruit_location:
             self.last_ate = 0
             try:
                 self.set_fruit()
@@ -90,10 +89,11 @@ class Env:
                 out_enum = SnakeState.ATE
             except IndexError:
                 out_enum = SnakeState.WON
+        self.snake.shed()
+        if not self._bounds_check(snake.head) or self.snake.self_collision():
+            out_enum = SnakeState.DED
         elif self.last_ate > self.stamina:
             out_enum = SnakeState.DED
-
-        self.snake.shed()
 
         return out_enum
 
