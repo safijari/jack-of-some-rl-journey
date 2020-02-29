@@ -14,16 +14,12 @@ import wandb
 def make_main_model(input_shape, num_actions):
     return tf.keras.Sequential(
         [
-            Conv2D(32, 1, activation='relu', input_shape=input_shape),
-            Conv2D(64, 3, activation='relu', strides=(2, 2)),
-            Conv2D(128, 3, activation='relu', strides=(2, 2)),
-            Conv2D(128, 3, activation='relu', strides=(2, 2)),
-            Conv2D(128, 3, activation='relu', strides=(2, 2)),
-            Conv2D(128, 3, activation='relu', strides=(2, 2)),
+            Conv2D(32, 8, padding='valid', activation='relu', strides=(4, 4), input_shape=input_shape),
+            Conv2D(64, 4, padding='valid', activation='relu', strides=(2, 2)),
+            Conv2D(64, 3, padding='valid', activation='relu', strides=(1, 1)),
             Flatten(),
-            Dense(256, activation='relu'),
-            Dense(128, activation='relu'),
-            Dense(num_actions, activation='relu'),
+            Dense(512, activation='relu'),
+            Dense(num_actions),
         ])
 
 # taken from https://github.com/openai/baselines/blob/tf2/baselines/deepq/deepq_learner.py
@@ -38,7 +34,7 @@ def huber_loss(x, delta=1.0):
     )
 
 class SnakeModel(Model):
-    def __init__(self, input_shape, num_actions, gamma=0.99, lr=0.0001):
+    def __init__(self, input_shape, num_actions, gamma=0.99, lr=0.001):
         super(SnakeModel, self).__init__()
         # image_shape should be (h, w, channels)
         self.num_actions = num_actions
@@ -247,15 +243,15 @@ def experience_samples_to_training_input(samples):
     return tf.convert_to_tensor(np.stack(obs, 0)), tf.convert_to_tensor(actions, dtype='int32'), tf.convert_to_tensor(rewards, dtype='float32'), tf.convert_to_tensor(np.stack(obs_next, 0)), tf.convert_to_tensor(dones, dtype='bool')
 
 def get_episodes(env, model, num_episodes):
-    episodes = [run_full_episode(env, model, override_eps=0.2)
+    episodes = [run_full_episode(env, model, override_eps=0.8)
                 for i in range(int(num_episodes*3))]
     episodes = sorted(episodes, key=lambda e: e.total_rew)[-num_episodes:]
     return episodes
 
 def main():
     total_steps = 1000000
-    batch_size = 0
-    target_model_steps = 100
+    batch_size = 64
+    target_model_steps = 1000
     test_steps = 100
 
     wandb.init(project='tf2-messing-around')
@@ -275,7 +271,7 @@ def main():
         for ep in get_episodes(env, model, 2):
             replay.add_new_episode(ep)
 
-        sample = replay.sample_frames(128, stacking=stacking)
+        sample = replay.sample_frames(batch_size, stacking=stacking)
         inp = experience_samples_to_training_input(sample)
         l = model.train(*inp)
 
