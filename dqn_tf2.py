@@ -12,6 +12,14 @@ import gym
 from snake_gym import SnakeEnv
 import wandb
 
+
+def qvals_to_boltzman_probabilities(qvals, temp, min_temp=0.01):
+    t = max(min_temp, temp)
+    expd = np.exp(qvals/t)
+    m = np.sum(expd, 1)
+    return expd/m[:, np.newaxis]
+
+
 def make_main_model(input_shape, num_actions):
     return tf.keras.Sequential(
         [
@@ -58,7 +66,22 @@ class SnakeModel(Model):
     def call(self, x):
         return self.model(x)
 
-    @tf.function
+    def predict_boltzmann(self, obs, stochastic=True, temperature=0.1):
+        # obs shape: (N, gs, gs, 1)
+        obs = obs/255
+        if len(obs.shape) == 3:
+            obs = tf.expand_dims(obs, 0)
+        # note: obs is obvs a batch
+        q_vals = self.model(obs)
+        # qvals shape: (N, n)
+
+        if not stochastic:
+            deterministic_actions = tf.argmax(q_vals, axis=1)
+            return deterministic_actions
+        else:
+            probs = qvals_to_boltzman_probabilities(q_vals, temperature)
+            return np.random.choice(q_vals.shape[-1], p=probs)
+
     def predict(self, obs: tf.Tensor, stochastic=True, override_eps=0, update_eps=-1):
         obs = obs/255
         if len(obs.shape) == 3:
