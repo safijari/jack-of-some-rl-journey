@@ -15,7 +15,9 @@ from tf2_common import make_main_model
 
 
 def qvals_to_boltzman_probabilities(qvals, temp, min_temp=0.01):
+    qvals = np.array(qvals)
     t = max(min_temp, temp)
+    qvals = qvals - qvals.max(1)[:, np.newaxis]
     expd = np.exp(qvals/t)
     m = np.sum(expd, 1)
     return expd/m[:, np.newaxis]
@@ -68,7 +70,11 @@ class SnakeModel(Model):
             return deterministic_actions
         else:
             probs = qvals_to_boltzman_probabilities(q_vals, temperature)
-            return np.random.choice(q_vals.shape[-1], p=probs)
+            try:
+                action = np.random.choice(q_vals.shape[-1], p=probs.flatten())
+            except Exception:
+                import ipdb; ipdb.set_trace()
+            return action
 
     def predict(self, obs: tf.Tensor, stochastic=True, override_eps=0, update_eps=-1):
         obs = obs/255
@@ -180,7 +186,15 @@ class Episode:
         l = [f"(Episode) Total reward: {self.total_rew}"] + [str(e) for e in self.exps]
         return '\n'.join(l)
 
-def run_full_episode(env, model: SnakeModel, eps_fn=lambda x: 0.5, render_time=0, test=False):
+
+def get_episodes(env, model, num_episodes, temperature=0, multiplier=3):
+    episodes = [run_full_episode(env, model, temperature)
+                for i in range(int(num_episodes*multiplier))]
+    episodes = sorted(episodes, key=lambda e: e.total_rew)[-num_episodes:]
+    return episodes
+
+
+def run_full_episode(env, model: SnakeModel, temperature=0, render_time=0, test=False):
     exps = []
     state = env.reset()
     if render_time:
@@ -190,8 +204,7 @@ def run_full_episode(env, model: SnakeModel, eps_fn=lambda x: 0.5, render_time=0
 
     score_so_far = 0
     while not done:
-        override_eps = eps_fn(score_so_far)
-        action = int(model.predict(tf.constant(state), stochastic=(not test), override_eps=tf.constant(override_eps)))
+        action = int(model.predict_boltzmann(tf.constant(state), stochastic=(not test), temperature=temperature))
         state_old = state
         state, rew, done, _ = env.step(action)
         exps.append(Exp(state_old, state, action, rew, 0, done))
@@ -201,6 +214,9 @@ def run_full_episode(env, model: SnakeModel, eps_fn=lambda x: 0.5, render_time=0
             env.render()
             time.sleep(render_time)
 
+    if render_time:
+        env.render()
+        time.sleep(render_time)
     last_rew = 0
     for e in reversed(exps):
         if e.done:
@@ -258,12 +274,6 @@ def experience_samples_to_training_input(samples):
 
     return tf.constant(np.stack(obs, 0)), tf.constant(actions, dtype='int32'), tf.constant(rewards, dtype='float32'), tf.constant(np.stack(obs_next, 0)), tf.constant(dones, dtype='bool')
 
-def get_episodes(env, model, num_episodes, eps_fn = lambda x: 0.5, multiplier=3):
-    episodes = [run_full_episode(env, model, eps_fn)
-                for i in range(int(num_episodes*multiplier))]
-    episodes = sorted(episodes, key=lambda e: e.total_rew)[-num_episodes:]
-    return episodes
-
 @dataclass
 class RunCfg:
     total_steps: int
@@ -273,25 +283,28 @@ class RunCfg:
     max_possible_reward: int
     target_model_steps: int
     test_steps: int
-    ending_eps: int
     stacking: int
+    steps_between_train: int
+    starting_temperature: int
+    temperature_decay_idx: int
 
 def main():
     last_test_rewards = deque(maxlen=10)
     gs = 10
     main_gs = gs
     max_possible_reward = gs**2 - 2
-    eps = 0.8,
-    avg_test_rewards = 0
     cfg = RunCfg(total_steps=1000000,
                  batch_size=64,
                  gs=gs,
                  main_gs=main_gs,
                  max_possible_reward=max_possible_reward,
-                 target_model_steps=1000,
-                 test_steps=100,
-                 ending_eps=0.05,
-                 stacking=1)
+                 target_model_steps=5000,
+                 test_steps=5000,
+                 stacking=1,
+                 steps_between_train=4,
+                 starting_temperature=5,
+                 temperature_decay_idx=500000
+                 )
 
     wandb.init(project='tf2-messing-around',
                config=vars(cfg))
@@ -301,37 +314,59 @@ def main():
 
     replay = EpisodicReplayBuffer(100000)
 
-    eps_fn = lambda score: float(get_step_eps(score, avg_test_rewards, 10, max_possible_reward, 0.001, 0.3))
+    temp_fn = gamma_decay_function_factory(cfg.starting_temperature, cfg.temperature_decay_idx)
 
-    while len(replay) < 5000:
-        for ep in get_episodes(env, model, 10, eps_fn):
+    while len(replay) < 1000:
+        for ep in get_episodes(env, model, 10, temp_fn(0)):
             replay.add_new_episode(ep)
 
-    for i in tqdm(range(cfg.total_steps)):
-        for ep in get_episodes(env, model, 1, eps_fn, multiplier=1):
-            replay.add_new_episode(ep)
+    pbar = tqdm()
 
-        sample = replay.sample_frames(cfg.batch_size, stacking=cfg.stacking)
-        inp = experience_samples_to_training_input(sample)
-        l = model.train(*inp)
+    i = 0
 
-        loss = float(tf.reduce_mean(l[0]))
+    steps_until_train = 1
+    steps_until_ep = 1
+    while True:
+        pbar.update(1)
+        steps_until_train -= 1
+        steps_until_ep -= 1
+
+        if steps_until_ep <= 0:
+            for ep in get_episodes(env, model, 1, temp_fn(i), multiplier=1):
+                replay.add_new_episode(ep)
+            steps_until_ep = len(ep.exps)
+            wandb.log({'average_episode_reward': np.mean(replay.episode_reward_counter)}, step=i)
+
+
+        if steps_until_train <= 0:
+            sample = replay.sample_frames(cfg.batch_size, stacking=cfg.stacking)
+            inp = experience_samples_to_training_input(sample)
+            l = model.train(*inp)
+            loss = float(tf.reduce_mean(l[0]))
+            wandb.log({'loss': loss, 'temperature': temp_fn(i)}, step=i)
+
+            steps_until_train = cfg.steps_between_train
 
         if i and i % cfg.target_model_steps == 0:
             model.update_target()
 
         if i % cfg.test_steps == 0:
-            render_time = 0.05 if os.path.exists('/tmp/vis') else 0
+            render_time = 0.02 if os.path.exists('/tmp/vis') else 0
             rew = np.mean([run_full_episode(env, model, test=True, render_time=render_time).total_rew for _ in range(5)])
             last_test_rewards.append(rew)
             wandb.log({'test_reward': rew}, step=i)
 
-        if len(last_test_rewards) >= 10:
-            avg_test_rewards = float(np.mean(last_test_rewards))
+        i += 1
 
-        wandb.log({'loss': loss, 'average_episode_reward': np.mean(replay.episode_reward_counter),
-                   'eps': eps}, step=i)
+    pbar.close()
 
+def gamma_decay_function_factory(start_value, thresh_idx, thresh=0.5):
+    gamma = np.exp((np.log(thresh) - np.log(start_value)) / thresh_idx)
+    sv = start_value
+    def get_decayed_value(idx):
+        return max(thresh, sv * gamma ** idx)
+
+    return get_decayed_value
 
 def get_step_eps(curr_score, mean_score, mean_score_thresh, max_score, min_eps, max_eps):
     if mean_score < mean_score_thresh:
