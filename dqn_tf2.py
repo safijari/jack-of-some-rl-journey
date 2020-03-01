@@ -11,19 +11,7 @@ from tensorflow.keras import Model
 import gym
 from snake_gym import SnakeEnv
 import wandb
-
-def make_main_model(input_shape, num_actions):
-    return tf.keras.Sequential(
-        [
-            Conv2D(32, 8, padding='valid', activation='relu', strides=(4, 4), input_shape=input_shape),
-            Conv2D(64, 4, padding='valid', activation='relu', strides=(2, 2)),
-            Conv2D(64, 3, padding='valid', activation='relu', strides=(1, 1)),
-            Flatten(),
-            Dense(512, activation='relu'),
-            Dense(num_actions),
-        ])
-
-# taken from https://github.com/openai/baselines/blob/tf2/baselines/deepq/deepq_learner.py
+from tf2_common import make_main_model
 
 @tf.function
 def huber_loss(x, delta=1.0):
@@ -180,7 +168,7 @@ def run_full_episode(env, model: SnakeModel, eps_fn=lambda x: 0.5, render_time=0
     score_so_far = 0
     while not done:
         override_eps = eps_fn(score_so_far)
-        action = int(model.predict(tf.convert_to_tensor(state), stochastic=(not test), override_eps=tf.convert_to_tensor(override_eps)))
+        action = int(model.predict(tf.constant(state), stochastic=(not test), override_eps=tf.constant(override_eps)))
         state_old = state
         state, rew, done, _ = env.step(action)
         exps.append(Exp(state_old, state, action, rew, 0, done))
@@ -245,7 +233,7 @@ def experience_samples_to_training_input(samples):
         rewards.append(s.rew)
         dones.append(s.done)
 
-    return tf.convert_to_tensor(np.stack(obs, 0)), tf.convert_to_tensor(actions, dtype='int32'), tf.convert_to_tensor(rewards, dtype='float32'), tf.convert_to_tensor(np.stack(obs_next, 0)), tf.convert_to_tensor(dones, dtype='bool')
+    return tf.constant(np.stack(obs, 0)), tf.constant(actions, dtype='int32'), tf.constant(rewards, dtype='float32'), tf.constant(np.stack(obs_next, 0)), tf.constant(dones, dtype='bool')
 
 def get_episodes(env, model, num_episodes, eps_fn = lambda x: 0.5, multiplier=3):
     episodes = [run_full_episode(env, model, eps_fn)
@@ -267,7 +255,7 @@ class RunCfg:
 
 def main():
     last_test_rewards = deque(maxlen=10)
-    gs = 6
+    gs = 10
     main_gs = gs
     max_possible_reward = gs**2 - 2
     eps = 0.8,
@@ -290,7 +278,7 @@ def main():
 
     replay = EpisodicReplayBuffer(100000)
 
-    eps_fn = lambda score: float(get_step_eps(score, avg_test_rewards, 5, max_possible_reward, 0.01, 0.5))
+    eps_fn = lambda score: float(get_step_eps(score, avg_test_rewards, 10, max_possible_reward, 0.001, 0.3))
 
     while len(replay) < 5000:
         for ep in get_episodes(env, model, 10, eps_fn):
