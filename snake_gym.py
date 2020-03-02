@@ -26,7 +26,7 @@ reward_map = {
     SnakeState.OK: 0,
     SnakeState.ATE: 1,
     SnakeState.DED: -1,
-    SnakeState.WON: 5
+    SnakeState.WON: 1
 }
 
 

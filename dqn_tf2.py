@@ -14,11 +14,12 @@ import wandb
 from tf2_common import make_main_model
 
 
-def qvals_to_boltzman_probabilities(qvals, temp, min_temp=0.01):
+def qvals_to_boltzman_probabilities(qvals, temp, min_temp=0.00000001):
     qvals = np.array(qvals)
     t = max(min_temp, temp)
+    qvals = qvals/t
     qvals = qvals - qvals.max(1)[:, np.newaxis]
-    expd = np.exp(qvals/t)
+    expd = np.exp(qvals)
     m = np.sum(expd, 1)
     return expd/m[:, np.newaxis]
 
@@ -33,7 +34,7 @@ def huber_loss(x, delta=1.0):
     )
 
 class SnakeModel(Model):
-    def __init__(self, input_shape, num_actions, gamma=0.99, lr=0.001):
+    def __init__(self, input_shape, num_actions, gamma=0.99, lr=0.0005):
         super(SnakeModel, self).__init__()
         # image_shape should be (h, w, channels)
         self.num_actions = num_actions
@@ -298,12 +299,12 @@ def main():
                  gs=gs,
                  main_gs=main_gs,
                  max_possible_reward=max_possible_reward,
-                 target_model_steps=5000,
+                 target_model_steps=20000,
                  test_steps=5000,
                  stacking=1,
                  steps_between_train=4,
-                 starting_temperature=5,
-                 temperature_decay_idx=500000
+                 starting_temperature=3,
+                 temperature_decay_idx=2000000
                  )
 
     wandb.init(project='tf2-messing-around',
@@ -314,7 +315,7 @@ def main():
 
     replay = EpisodicReplayBuffer(100000)
 
-    temp_fn = gamma_decay_function_factory(cfg.starting_temperature, cfg.temperature_decay_idx)
+    temp_fn = gamma_decay_function_factory(cfg.starting_temperature, cfg.temperature_decay_idx, thresh=0.00001)
 
     while len(replay) < 1000:
         for ep in get_episodes(env, model, 10, temp_fn(0)):
@@ -349,6 +350,7 @@ def main():
 
         if i and i % cfg.target_model_steps == 0:
             model.update_target()
+            model.save(f"./{i}.h5")
 
         if i % cfg.test_steps == 0:
             render_time = 0.02 if os.path.exists('/tmp/vis') else 0
