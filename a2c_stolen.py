@@ -19,7 +19,7 @@ class SnakeModel(Model):
         self.image_shape = input_shape
         self.model = make_main_model(input_shape, num_actions, include_finals=False)
         self.logits_dense = tf.keras.layers.Dense(512)
-        self.value_dense = tf.keras.layers.Dense(512)
+        # self.value_dense = tf.keras.layers.Dense(512)
         self.logits = tf.keras.layers.Dense(num_actions, activation='softmax')
         self.value = tf.keras.layers.Dense(1)
 
@@ -31,8 +31,8 @@ class SnakeModel(Model):
 
     @tf.function
     def call(self, x):
-        latent = self.model(x)
-        return self.logits(self.logits_dense(latent)), self.value(self.value_dense(latent))
+        latent = self.logits_dense(self.model(x))
+        return self.logits((latent)), self.value((latent))
 
 class Agent:
     def __init__(self):
@@ -45,7 +45,6 @@ class Agent:
 
         self.rollout = 128
         self.batch_size = 128
-        self.state_size = 4
 
     def get_action(self, state):
         state = tf.convert_to_tensor([state], dtype=tf.float32)
@@ -69,13 +68,12 @@ class Agent:
         a2c_variable = self.a2c.trainable_variables
         with tf.GradientTape() as tape:
             tape.watch(a2c_variable)
-            _, current_value = self.a2c(tf.convert_to_tensor(state, dtype=tf.float32))
+            policy, current_value = self.a2c(tf.convert_to_tensor(state, dtype=tf.float32))
             _, next_value = self.a2c(tf.convert_to_tensor(next_state, dtype=tf.float32))
             current_value, next_value = tf.squeeze(current_value), tf.squeeze(next_value)
             target = tf.stop_gradient(self.gamma * (1-tf.convert_to_tensor(done, dtype=tf.float32)) * next_value + tf.convert_to_tensor(reward, dtype=tf.float32))
             value_loss = tf.reduce_mean(tf.square(target - current_value) * 0.5)
 
-            policy, _  = self.a2c(tf.convert_to_tensor(state, dtype=tf.float32))
             entropy = tf.reduce_mean(- policy * tf.math.log(policy+1e-8)) * 0.1
             action = tf.convert_to_tensor(action, dtype=tf.int32)
             onehot_action = tf.one_hot(action, self.action_size)
