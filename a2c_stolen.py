@@ -19,7 +19,7 @@ class SnakeModel(Model):
         self.image_shape = input_shape
         self.model = make_main_model(input_shape, num_actions, include_finals=False)
         self.logits_dense = tf.keras.layers.Dense(512)
-        # self.value_dense = tf.keras.layers.Dense(512)
+        self.value_dense = tf.keras.layers.Dense(512)
         self.logits = tf.keras.layers.Dense(num_actions, activation='softmax')
         self.value = tf.keras.layers.Dense(1)
 
@@ -29,10 +29,15 @@ class SnakeModel(Model):
     def save(self, path):
         self.model.save(path)
 
+    def get_policy(self, x):
+        x = x / 255.0
+        latent = self.logits_dense(self.model(x))
+        return self.logits((latent))
+
     @tf.function
     def call(self, x):
-        latent = self.logits_dense(self.model(x))
-        return self.logits((latent)), self.value((latent))
+        latent = self.model(x/255.0)
+        return self.logits(self.logits_dense(latent)), self.value(self.value_dense(latent))
 
 class Agent:
     def __init__(self):
@@ -47,35 +52,36 @@ class Agent:
         self.batch_size = 128
 
     def get_action(self, state):
-        state = tf.convert_to_tensor([state], dtype=tf.float32)
-        policy, _ = self.a2c(state)
+        state = tf.constant(np.array([state], dtype='float32'))
+        policy = self.a2c.get_policy(state)
         policy = np.array(policy)[0]
         action = np.random.choice(self.action_size, p=policy)
         return action
 
-    @tf.function
     def update(self, state, next_state, reward, done, action):
         sample_range = np.arange(self.rollout)
         np.random.shuffle(sample_range)
         sample_idx = sample_range[:self.batch_size]
 
-        state = [state[i] for i in sample_idx]
-        next_state = [next_state[i] for i in sample_idx]
-        reward = [reward[i] for i in sample_idx]
-        done = [done[i] for i in sample_idx]
-        action = [action[i] for i in sample_idx]
+        next_state = np.stack(([state[i] for i in sample_idx])).astype('float32')
+        next_state = np.stack(([next_state[i] for i in sample_idx])).astype('float32')
+        reward = np.stack(([reward[i] for i in sample_idx])).astype('float32')
+        done = np.stack(([done[i] for i in sample_idx])).astype('float32')
+        action = np.stack(([action[i] for i in sample_idx])).astype('int32')
+        return self._update(state, next_state, reward, done, action)
 
-        a2c_variable = self.a2c.trainable_variables
+    @tf.function
+    def _update(self, state, next_state, reward, done, action):
+        # a2c_variable = self.a2c.trainable_variables
         with tf.GradientTape() as tape:
-            tape.watch(a2c_variable)
-            policy, current_value = self.a2c(tf.convert_to_tensor(state, dtype=tf.float32))
-            _, next_value = self.a2c(tf.convert_to_tensor(next_state, dtype=tf.float32))
+            policy, current_value = self.a2c((state))
+            _, next_value = self.a2c((next_state))
             current_value, next_value = tf.squeeze(current_value), tf.squeeze(next_value)
-            target = tf.stop_gradient(self.gamma * (1-tf.convert_to_tensor(done, dtype=tf.float32)) * next_value + tf.convert_to_tensor(reward, dtype=tf.float32))
+            target = tf.stop_gradient(self.gamma * (1-(done)) * next_value + (reward))
             value_loss = tf.reduce_mean(tf.square(target - current_value) * 0.5)
 
             entropy = tf.reduce_mean(- policy * tf.math.log(policy+1e-8)) * 0.1
-            action = tf.convert_to_tensor(action, dtype=tf.int32)
+            action = (action)
             onehot_action = tf.one_hot(action, self.action_size)
             action_policy = tf.reduce_sum(onehot_action * policy, axis=1)
             adv = tf.stop_gradient(target - current_value)
@@ -83,8 +89,8 @@ class Agent:
 
             total_loss = pi_loss + value_loss
 
-        grads = tape.gradient(total_loss, a2c_variable)
-        self.opt.apply_gradients(zip(grads, a2c_variable))
+        grads = tape.gradient(total_loss, self.a2c.trainable_variables)
+        self.opt.apply_gradients(zip(grads, self.a2c.trainable_variables))
 
     def run(self):
         # last_test_rewards = deque(maxlen=10)
@@ -109,6 +115,7 @@ class Agent:
         state = env.reset()
 
         episode = 0
+        elen = 0
         score = 0
 
         while True:
@@ -116,11 +123,10 @@ class Agent:
             reward_list, done_list, action_list = [], [], []
 
             for _ in range(self.rollout):
+                elen += 1
                 action = self.get_action(state)
                 next_state, reward, done, _ = env.step(action)
                 score += reward
-                env.render()
-                time.sleep(0.005)
 
                 state_list.append(state)
                 next_state_list.append(next_state)
@@ -131,13 +137,13 @@ class Agent:
                 state = next_state
 
                 if done:
-                    print(episode, score)
+                    print(episode, score, elen)
                     state = env.reset()
                     episode += 1
-                    score = 0
+                    score = elen = 0
 
             self.update(
-                state=state_list, next_state=next_state_list,
+                state=np.array(state_list, dtype='float32'), next_state=np.array(next_state_list, dtype='float32'),
                 reward=reward_list, done=done_list, action=action_list)
 
 
