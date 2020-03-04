@@ -71,10 +71,7 @@ class SnakeModel(Model):
             return deterministic_actions
         else:
             probs = qvals_to_boltzman_probabilities(q_vals, temperature)
-            try:
-                action = np.random.choice(q_vals.shape[-1], p=probs.flatten())
-            except Exception:
-                import ipdb; ipdb.set_trace()
+            action = np.random.choice(q_vals.shape[-1], p=probs.flatten())
             return action
 
     def predict(self, obs: tf.Tensor, stochastic=True, override_eps=0, update_eps=-1):
