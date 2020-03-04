@@ -13,8 +13,6 @@ import random
 import gym
 import wandb
 
-wandb.init('snake-a2c')
-
 class SnakeModel(Model):
     def __init__(self, input_shape, num_actions):
         super(SnakeModel, self).__init__()
@@ -33,6 +31,7 @@ class SnakeModel(Model):
     def save(self, path):
         self.model.save(path)
 
+    @tf.function
     def get_policy(self, x):
         x = x / 255.0
         latent = self.logits_dense(self.model(x))
@@ -47,12 +46,21 @@ class SnakeModel(Model):
 
 class Agent:
     def __init__(self):
-        self.lr = 0.001
-        self.gamma = 0.99
+        self.lr = 0.0001
+        self.gamma = 0.999
 
         self.action_size = 3
         self.a2c = SnakeModel((128, 128, 1), self.action_size)
         self.opt = optimizers.Adam(lr=self.lr, )
+
+        self.entropy_coefficient = 0.01
+        self.vf_coef = 0.5
+        self.max_grad_norm = 0.5
+        # lr=7e-4
+        # alpha=0.99
+        # epsilon=1e-5
+        # self.opt = tf.keras.optimizers.RMSprop(learning_rate=lr_schedule, rho=alpha, epsilon=epsilon)
+
 
         self.rollout = 128
         self.batch_size = 128
@@ -83,13 +91,13 @@ class Agent:
     def _update(self, state, next_state, reward, done, action):
         # a2c_variable = self.a2c.trainable_variables
         with tf.GradientTape() as tape:
-            policy, current_value = self.a2c((state))
-            _, next_value = self.a2c((next_state))
+            policy, current_value = self.a2c(state)
+            _, next_value = self.a2c(next_state)
             current_value, next_value = tf.squeeze(current_value), tf.squeeze(next_value)
-            target = tf.stop_gradient(self.gamma * (1-(done)) * next_value + (reward))
-            value_loss = tf.reduce_mean(tf.square(target - current_value) * 0.5)
+            target = reward
+            value_loss = tf.reduce_mean(tf.square(target - current_value) * self.vf_coef)
 
-            entropy = tf.reduce_mean(- policy * tf.math.log(policy+1e-8)) * 0.1
+            entropy = tf.reduce_mean(- policy * tf.math.log(policy+1e-8)) * self.entropy_coefficient
             action = (action)
             onehot_action = tf.one_hot(action, self.action_size)
             action_policy = tf.reduce_sum(onehot_action * policy, axis=1)
@@ -99,11 +107,12 @@ class Agent:
             total_loss = pi_loss + value_loss
 
         grads = tape.gradient(total_loss, self.a2c.trainable_variables)
+        grads, _ = tf.clip_by_global_norm(grads, self.max_grad_norm)
         self.opt.apply_gradients(zip(grads, self.a2c.trainable_variables))
         return total_loss, pi_loss, value_loss, entropy
 
     def run(self):
-        gs = 4
+        gs = 6
         main_gs = gs
         max_possible_reward = gs**2 - 2
         cfg = RunCfg(total_steps=1000000,
@@ -133,6 +142,8 @@ class Agent:
             while num_obs < self.rollout:
                 ep = run_full_episode(env, self)
                 episodes += 1
+                num_obs += len(ep.exps)
+                i += len(ep.exps)
                 pbar.update(1)
                 wandb.log({'episode_reward': ep.total_rew, 'episode_length': len(ep.exps), 'episodes': episodes}, step=i)
                 num_obs += len(ep.exps)
@@ -147,6 +158,7 @@ class Agent:
                 state=np.array(state_list, dtype='float32'),
                 next_state=np.array(next_state_list, dtype='float32'),
                 reward=reward_list, done=done_list, action=action_list)
+
             wandb.log({'loss': loss, 'pi_loss': pi_loss, 'value_loss': val_loss, 'entroy': entropy}, step=i)
 
 def run_full_episode(env, model: Agent, render_time=0, test=False):
@@ -183,5 +195,6 @@ def run_full_episode(env, model: Agent, render_time=0, test=False):
     return Episode(exps, sum(e.rew for e in exps))
 
 if __name__ == '__main__':
+    wandb.init(project='snake-a2c')
     agent = Agent()
     agent.run()
