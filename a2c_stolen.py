@@ -1,4 +1,5 @@
 import tensorflow as tf
+from tqdm import tqdm
 import time
 from collections import deque
 import numpy as np
@@ -10,6 +11,9 @@ from tensorflow.keras import Model
 
 import random
 import gym
+import wandb
+
+wandb.init('snake-a2c')
 
 class SnakeModel(Model):
     def __init__(self, input_shape, num_actions):
@@ -91,6 +95,7 @@ class Agent:
 
         grads = tape.gradient(total_loss, self.a2c.trainable_variables)
         self.opt.apply_gradients(zip(grads, self.a2c.trainable_variables))
+        return total_loss, pi_loss, value_loss, entropy
 
     def run(self):
         # last_test_rewards = deque(maxlen=10)
@@ -118,6 +123,10 @@ class Agent:
         elen = 0
         score = 0
 
+        i = 0
+
+        pbar = tqdm()
+
         while True:
             state_list, next_state_list = [], []
             reward_list, done_list, action_list = [], [], []
@@ -137,14 +146,17 @@ class Agent:
                 state = next_state
 
                 if done:
-                    print(episode, score, elen)
+                    pbar.update(1)
                     state = env.reset()
                     episode += 1
+                    wandb.log({'episode_reward': score, 'episode_length': elen, 'episodes': episode}, step=i)
                     score = elen = 0
+                i += 1
 
-            self.update(
+            loss, pi_loss, val_loss, entropy = self.update(
                 state=np.array(state_list, dtype='float32'), next_state=np.array(next_state_list, dtype='float32'),
                 reward=reward_list, done=done_list, action=action_list)
+            wandb.log({'loss': loss, 'pi_loss': pi_loss, 'value_loss': val_loss, 'entroy': entropy}, step=i)
 
 
 if __name__ == '__main__':
