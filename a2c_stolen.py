@@ -4,7 +4,7 @@ import time
 from collections import deque
 import numpy as np
 from tf2_common import make_main_model
-from dqn_tf2 import RunCfg
+from dqn_tf2 import RunCfg, run_full_episode, Exp, Episode
 
 from tensorflow.keras import optimizers, losses
 from tensorflow.keras import Model
@@ -43,6 +43,8 @@ class SnakeModel(Model):
         latent = self.model(x/255.0)
         return self.logits(self.logits_dense(latent)), self.value(self.value_dense(latent))
 
+
+
 class Agent:
     def __init__(self):
         self.lr = 0.001
@@ -55,19 +57,22 @@ class Agent:
         self.rollout = 128
         self.batch_size = 128
 
-    def get_action(self, state):
+    def get_action(self, state, stochastic=False):
         state = tf.constant(np.array([state], dtype='float32'))
         policy = self.a2c.get_policy(state)
         policy = np.array(policy)[0]
-        action = np.random.choice(self.action_size, p=policy)
+        if stochastic:
+            action = np.random.choice(self.action_size, p=policy)
+        else:
+            action = np.argmax(policy)
         return action
 
     def update(self, state, next_state, reward, done, action):
-        sample_range = np.arange(self.rollout)
+        sample_range = np.arange(len(state)-1)
         np.random.shuffle(sample_range)
         sample_idx = sample_range[:self.batch_size]
 
-        next_state = np.stack(([state[i] for i in sample_idx])).astype('float32')
+        state = np.stack(([state[i] for i in sample_idx])).astype('float32')
         next_state = np.stack(([next_state[i] for i in sample_idx])).astype('float32')
         reward = np.stack(([reward[i] for i in sample_idx])).astype('float32')
         done = np.stack(([done[i] for i in sample_idx])).astype('float32')
@@ -98,7 +103,6 @@ class Agent:
         return total_loss, pi_loss, value_loss, entropy
 
     def run(self):
-        # last_test_rewards = deque(maxlen=10)
         gs = 4
         main_gs = gs
         max_possible_reward = gs**2 - 2
@@ -114,50 +118,69 @@ class Agent:
                      starting_temperature=3,
                      temperature_decay_idx=2000000)
 
-        # num_envs = 4
-
         env = gym.make('snakenv-v0', gs=gs, main_gs=main_gs)
-        state = env.reset()
-
-        episode = 0
-        elen = 0
-        score = 0
+        episodes = 0
 
         i = 0
 
         pbar = tqdm()
 
         while True:
+            num_obs = 0
             state_list, next_state_list = [], []
             reward_list, done_list, action_list = [], [], []
 
-            for _ in range(self.rollout):
-                elen += 1
-                action = self.get_action(state)
-                next_state, reward, done, _ = env.step(action)
-                score += reward
-
-                state_list.append(state)
-                next_state_list.append(next_state)
-                reward_list.append(reward)
-                done_list.append(done)
-                action_list.append(action)
-
-                state = next_state
-
-                if done:
-                    pbar.update(1)
-                    state = env.reset()
-                    episode += 1
-                    wandb.log({'episode_reward': score, 'episode_length': elen, 'episodes': episode}, step=i)
-                    score = elen = 0
-                i += 1
+            while num_obs < self.rollout:
+                ep = run_full_episode(env, self)
+                episodes += 1
+                pbar.update(1)
+                wandb.log({'episode_reward': ep.total_rew, 'episode_length': len(ep.exps), 'episodes': episodes}, step=i)
+                num_obs += len(ep.exps)
+                for exp in ep.exps:
+                    state_list.append(exp.obs)
+                    next_state_list.append(exp.obs_next)
+                    reward_list.append(exp.discounted_rew)
+                    done_list.append(float(exp.done))
+                    action_list.append(int(exp.action))
 
             loss, pi_loss, val_loss, entropy = self.update(
-                state=np.array(state_list, dtype='float32'), next_state=np.array(next_state_list, dtype='float32'),
+                state=np.array(state_list, dtype='float32'),
+                next_state=np.array(next_state_list, dtype='float32'),
                 reward=reward_list, done=done_list, action=action_list)
             wandb.log({'loss': loss, 'pi_loss': pi_loss, 'value_loss': val_loss, 'entroy': entropy}, step=i)
 
+def run_full_episode(env, model: Agent, render_time=0, test=False):
+    exps = []
+    state = env.reset()
+    if render_time:
+        env.render()
+        time.sleep(render_time)
+    done = False
+
+    score_so_far = 0
+    while not done:
+        action = model.get_action(state, (not test))
+        state_old = state
+        state, rew, done, _ = env.step(action)
+        exps.append(Exp(state_old, state, action, rew, 0, done))
+        score_so_far += rew
+
+        if render_time:
+            env.render()
+            time.sleep(render_time)
+
+    if render_time:
+        env.render()
+        time.sleep(render_time)
+    last_rew = 0
+    for e in reversed(exps):
+        if e.done:
+            e.discounted_rew = e.rew
+        else:
+            e.discounted_rew = e.rew + model.gamma * last_rew
+        last_rew = e.discounted_rew
+
+    return Episode(exps, sum(e.rew for e in exps))
 
 if __name__ == '__main__':
     agent = Agent()
