@@ -147,7 +147,7 @@ class Env:
                 connect_boxes(canvas, s.y, s.x,last_el.y, last_el.x, 128, scale=scale, padding=2)
                 last_el = s
 
-        return np.expand_dims(cv2.resize(canvas, (128, 128), interpolation=0), -1)
+        return np.expand_dims(cv2.resize(canvas, (84, 84), interpolation=0), -1)
 
 class Snake:
     def __init__(self):

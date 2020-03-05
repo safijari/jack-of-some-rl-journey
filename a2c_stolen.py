@@ -64,50 +64,10 @@ class SnakeModel(Model):
         latent = self.model(x/255)
         return self.value_head(latent)
 
-    # @tf.function
-    # def train(self, obs0, actions, rewards, obs1, dones):  #, importance_weights):
-    #     obs0 = obs0 / 255
-    #     obs1 = obs1 / 255
-    #     with tf.GradientTape() as tape:
-    #         q_t = self.model(obs0)
-    #         # the one hot multiplier simply sets all non actioned
-    #         # q value locations to 0, and then the reduce sum gets
-    #         # rid of them
-    #         q_t_selected = tf.reduce_sum(q_t * tf.one_hot(
-    #             actions, self.num_actions, dtype=tf.float32), 1)
-    #         q_tp1 = self.target_model(obs1)
-
-    #         # if self.double_q:
-    #         #     q_tp1_using_online_net = self.q_network(obs1)
-    #         #     q_tp1_best_using_online_net = tf.argmax(q_tp1_using_online_net, 1)
-    #         #     q_tp1_best = tf.reduce_sum(q_tp1 * tf.one_hot(q_tp1_best_using_online_net, self.num_actions, dtype=tf.float32), 1)
-
-    #         q_tp1_best = tf.reduce_max(q_tp1, 1)  # picks the best Q value for each batch, along axis 1
-
-    #         dones = tf.cast(dones, q_tp1_best.dtype)
-
-    #         q_tp1_best_masked = (1.0 - dones) * q_tp1_best
-
-    #         q_t_selected_target = rewards + self.gamma * q_tp1_best_masked
-
-    #         td_error = q_t_selected - tf.stop_gradient(q_t_selected_target)
-
-    #         errors = huber_loss(td_error)
-
-    #         # weighted_error = tf.reduce_mean(importance_weights * errors)
-
-    #     grads = tape.gradient(errors, self.model.trainable_variables)
-
-    #     # clipping?
-    #     grads_and_vars = zip(grads, self.model.trainable_variables)
-    #     self.optimizer.apply_gradients(grads_and_vars)
-
-    #     return errors, td_error
-
 def _e(s):
     return np.expand_dims(s, 0).astype('float32')
 
-# @tf.function
+@tf.function
 def train(model, states, rewards, values, actions):
 
     advs = rewards - values
@@ -122,7 +82,7 @@ def train(model, states, rewards, values, actions):
 
         entropy = tf.reduce_mean(calc_entropy(logits))
 
-        loss = policy_loss + value_loss * 0.5 # - 0.01*entropy
+        loss = policy_loss + value_loss * 0.5  - 0.1*entropy
 
     var_list = tape.watched_variables()
     grads = tape.gradient(loss, var_list)
@@ -131,15 +91,15 @@ def train(model, states, rewards, values, actions):
 
 def main():
     wandb.init('snake-a2c')
-    gs = 5
-    main_gs = 5
+    gs = 4
+    main_gs = 4
     batch_size = 128
     num_actions = 3
     env = gym.make('snakenv-v0', gs=gs, main_gs=main_gs)
 
     state = env.reset()
 
-    model = SnakeModel((128, 128, 1), num_actions)
+    model = SnakeModel((84, 84, 1), num_actions)
 
     sarsdv = []
     pbar = tqdm()
@@ -179,21 +139,21 @@ def main():
             _, _, R = model(_e(state))
             R = float(R.numpy()[0])
 
-        aRR = []
+        discounted_rewards = []
         for _, _, r, _, d, _ in reversed(sarsdv):
             if d:
                 R = 0
             R = r + model.gamma * R
-            aRR.append(R)
+            discounted_rewards.append(R)
 
 
-        aRR = np.expand_dims(np.array(list(reversed(aRR))), 1)
+        discounted_rewards = np.expand_dims(np.array(list(reversed(discounted_rewards))), 1)
 
         states = _a(sarsdv, 0)
         values = _a(sarsdv, -1)[:, :, 0]
         actions = _a(sarsdv, 1)
 
-        loss = train(model, states.astype('float32'), aRR.astype('float32'), values.astype('float32'), actions.astype('int32'))
+        loss = train(model, states.astype('float32'), discounted_rewards.astype('float32'), values.astype('float32'), actions.astype('int32'))
         wandb.log(dict(zip(['loss', 'policy_loss', 'value_loss', 'entropy'], loss)), step=steps)
 
 

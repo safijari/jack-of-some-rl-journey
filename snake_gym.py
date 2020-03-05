@@ -44,7 +44,6 @@ class SnakeEnv(gym.Env):
     def step(self, action):
         enum = self.env.update(action_map[action])
         rew = reward_map[enum]
-        # rew = rew/self.env.gs**2
 
         return self.env.to_image(), rew, (enum in [SnakeState.DED, SnakeState.WON]), {}
 
