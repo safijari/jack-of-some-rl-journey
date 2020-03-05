@@ -23,9 +23,8 @@ def calc_entropy(logits):
     return tf.reduce_sum(p0 * (tf.math.log(z0) - a0), axis=-1)
 
 class SnakeModel(Model):
-    def __init__(self, input_shape, num_actions, gamma=0.99, lr=0.001):
+    def __init__(self, input_shape, num_actions, gamma=0.99, lr=0.0001):
         super(SnakeModel, self).__init__()
-        # image_shape should be (h, w, channels)
         self.gamma = gamma
         self.lr = lr
         self.model = make_main_model(input_shape, num_actions, False)
@@ -82,7 +81,7 @@ def train(model, states, rewards, values, actions):
 
         entropy = tf.reduce_mean(calc_entropy(logits))
 
-        loss = policy_loss + value_loss * 0.5  - 0.1*entropy
+        loss = policy_loss + value_loss * 0.5  - 0.001*entropy
 
     var_list = tape.watched_variables()
     grads = tape.gradient(loss, var_list)
@@ -91,9 +90,9 @@ def train(model, states, rewards, values, actions):
 
 def main():
     wandb.init('snake-a2c')
-    gs = 4
-    main_gs = 4
-    batch_size = 128
+    gs = 8
+    main_gs = 8
+    batch_size = 512
     num_actions = 3
     env = gym.make('snakenv-v0', gs=gs, main_gs=main_gs)
 
@@ -130,7 +129,7 @@ def main():
             if done:
                 num_eps += 1
                 state = env.reset()
-                wandb.log({'wpisode_reward': rew, 'num_eps': num_eps}, step=steps)
+                wandb.log({'episode_reward': rew, 'num_eps': num_eps}, step=steps)
                 rew = 0
 
         R = 0
