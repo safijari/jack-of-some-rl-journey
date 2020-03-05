@@ -56,6 +56,7 @@ class Env:
         grid_size = self.gs
         # self.subgrid_loc = Point(randint(0, self.main_gs - self.gs), randint(0, self.main_gs - self.gs))
         self.snake = Snake()
+        self.snake.head = Point(randint(0, self.gs-2), randint(0, self.gs-1))
 
         pos_list = []
         for i in range(grid_size):
