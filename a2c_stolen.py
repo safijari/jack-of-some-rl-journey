@@ -29,11 +29,11 @@ class SnakeModel(Model):
         self.lr = lr
         self.model = make_main_model(input_shape, num_actions, False)
         self.policy_head = tf.keras.Sequential([
-            tf.keras.layers.Dense(512, activation='relu'),
+            tf.keras.layers.Dense(512, activation='relu', kernel_initializer='random_uniform', bias_initializer='zeros'),
             tf.keras.layers.Dense(num_actions)
         ])
         self.value_head = tf.keras.Sequential([
-            tf.keras.layers.Dense(512, activation='relu'),
+            tf.keras.layers.Dense(512, activation='relu', kernel_initializer='random_uniform', bias_initializer='zeros'),
             tf.keras.layers.Dense(1)
         ])
         self.num_actions = num_actions
@@ -81,20 +81,22 @@ def train(model, states, rewards, values, actions):
 
         entropy = tf.reduce_mean(calc_entropy(logits))
 
-        loss = policy_loss + value_loss * 0.5  - 0.001*entropy
+        loss = policy_loss + value_loss * 0.5  - 0.01*entropy
 
     var_list = tape.watched_variables()
     grads = tape.gradient(loss, var_list)
+    grads, _ = tf.clip_by_global_norm(grads, 0.1)
     model.optimizer.apply_gradients(zip(grads, var_list))
     return loss, policy_loss, value_loss, entropy
 
 def main():
     wandb.init('snake-a2c')
-    gs = 8
-    main_gs = 8
-    batch_size = 512
+    gs = 10
+    main_gs = 10
+    batch_size = 256
     num_actions = 3
-    env = gym.make('snakenv-v0', gs=gs, main_gs=main_gs)
+    env = gym.make('snakenv-v0', gs=gs, main_gs=main_gs, num_fruits=gs)
+    test_env = gym.make('snakenv-v0', gs=gs, main_gs=main_gs, num_fruits=gs)
 
     state = env.reset()
 
@@ -111,14 +113,16 @@ def main():
 
     steps = 0
     num_eps = 0
+    steps_since_last_test = 0
     while True:
         sarsdv = []
         for _ in range(batch_size):
             steps += 1
+            steps_since_last_test += 1
             pbar.update(1)
             action_logits, action_probs, value = model(_e(state))
             action = np.random.choice(range(num_actions), p=action_probs[0].numpy())
-            next_s, reward, done, _ = env.step(action)
+            next_s, reward, done, info_dict = env.step(action)
 
             rew += reward
 
@@ -129,8 +133,23 @@ def main():
             if done:
                 num_eps += 1
                 state = env.reset()
-                wandb.log({'episode_reward': rew, 'num_eps': num_eps}, step=steps)
+                wandb.log({'episode_reward': rew, 'num_eps': num_eps, 'score': info_dict['score']}, step=steps)
                 rew = 0
+
+        if steps_since_last_test >= 5000:
+            print('testing')
+            steps_since_last_test = 0
+            trew = 0
+            tstate = test_env.reset()
+            tdone = False
+            while not tdone:
+                test_env.render()
+                action_logits, action_probs, value = model(_e(tstate))
+                action = np.argmax(action_probs)
+                tstate, step_rew, tdone, info_dict = test_env.step(action)
+                trew += step_rew
+
+            wandb.log({'test_reward': trew, 'test_score': info_dict['score']}, step=steps)
 
         R = 0
 

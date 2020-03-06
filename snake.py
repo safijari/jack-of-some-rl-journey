@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-from random import choice, randint
+from random import choice, randint, sample
 from dataclasses import dataclass
 from enum import Enum
 
@@ -42,10 +42,11 @@ def connect_boxes(canvas, j1, i1, j2, i2, color, padding=2, scale=4):
     canvas[J1:J2, I1:I2] = color
 
 class Env:
-    def __init__(self, grid_size=10, main_gs=10):
+    def __init__(self, grid_size=10, main_gs=10, num_fruits=10):
         self.gs = grid_size
         # self.subgrid_loc = None
         self.main_gs = main_gs
+        self.num_fruits = num_fruits
         self.reset()
 
     def reset(self):
@@ -56,7 +57,7 @@ class Env:
         grid_size = self.gs
         # self.subgrid_loc = Point(randint(0, self.main_gs - self.gs), randint(0, self.main_gs - self.gs))
         self.snake = Snake()
-        self.snake.head = Point(randint(0, self.gs-2), randint(0, self.gs-1))
+        # self.snake.head = Point(randint(0, self.gs-2), randint(0, self.gs-1))
 
         pos_list = []
         for i in range(grid_size):
@@ -64,8 +65,8 @@ class Env:
                 pos_list.append(Point(i, j))
 
         self.pos_set = set(pos_list)
-        self.fruit_location = None
-        self.set_fruit()
+        self.fruit_locations = []
+        self.set_fruits()
 
     @property
     def stamina(self):
@@ -81,14 +82,16 @@ class Env:
         self.snake.update()
         out_enum = SnakeState.OK
 
-
-        if snake.head == self.fruit_location:
+        if snake.head in self.fruit_locations:
+            self.fruit_locations.pop(self.fruit_locations.index(snake.head))
             self.last_ate = 0
             try:
-                self.set_fruit()
+                self.set_fruits()
                 self.snake.tail_size += 1
                 out_enum = SnakeState.ATE
             except IndexError:
+                out_enum = SnakeState.WON
+            if len(self.fruit_locations) == 0:
                 out_enum = SnakeState.WON
         self.snake.shed()
         if not self._bounds_check(snake.head) or self.snake.self_collision():
@@ -100,14 +103,15 @@ class Env:
 
     @property
     def fruit_loc(self):
-        assert self.fruit_location is not None, "Fruit hasn't been initialized"
-        return self.fruit_location
+        return self.fruit_locations
 
-    def set_fruit(self):
+    def set_fruits(self):
         snake = self.snake
-        snake_locs = set([snake.head] + snake.tail)
+        snake_locs = set([snake.head] + snake.tail + self.fruit_locations)
         possible_positions = self.pos_set.difference(snake_locs)
-        self.fruit_location = choice(list(possible_positions))
+        diff = self.num_fruits - len(self.fruit_locations)
+        new_locs = sample(list(possible_positions), k=min(diff, len(possible_positions)))
+        self.fruit_locations.extend(new_locs)
 
     def _bounds_check(self, pos):
         return pos.x >= 0 and pos.x < self.gs and pos.y >= 0 and pos.y < self.gs
@@ -133,7 +137,8 @@ class Env:
 
         canvas = np.zeros((self.gs*scale, self.gs*scale), 'uint8') + 32
 
-        draw_boxes(canvas, fl.y, fl.x, 255, scale=scale, padding=1)
+        for f in fl:
+            draw_boxes(canvas, f.y, f.x, 255, scale=scale, padding=1)
 
         if self._bounds_check(snake.head):
             draw_boxes(canvas, snake.head.y, snake.head.x, 128, 1, scale=scale)
@@ -210,7 +215,7 @@ if __name__ == '__main__':
 
     # env controls the snake now
 
-    # env.set_fruit(s)
+    # env.set_fruits(s)
 
     # for i in range(50):
     #     s.update()

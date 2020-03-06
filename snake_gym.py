@@ -32,9 +32,9 @@ reward_map = {
 
 class SnakeEnv(gym.Env):
     metadata = {'render.modes': ['human', 'rgb_array']}
-    def __init__(self, gs=10, main_gs=10):
+    def __init__(self, gs=10, main_gs=10, num_fruits=10):
         super(SnakeEnv, self).__init__()
-        self.env = Env(gs, main_gs=main_gs)
+        self.env = Env(gs, main_gs=main_gs, num_fruits=num_fruits)
         self.viewer = None
         self.action_space = spaces.Discrete(3)
         self.observation_space = spaces.Box(
@@ -43,9 +43,20 @@ class SnakeEnv(gym.Env):
 
     def step(self, action):
         enum = self.env.update(action_map[action])
-        rew = reward_map[enum]
 
-        return self.env.to_image(), rew, (enum in [SnakeState.DED, SnakeState.WON]), {}
+        # if enum != SnakeState.DED:
+        rew = reward_map[enum]
+        # else:
+        #     rew = reward_map[enum]*(self.env.gs**2)
+
+        # rew /= (self.env.gs**2)
+
+        is_done = (enum in [SnakeState.DED, SnakeState.WON])
+        info_dict = {}
+        if is_done:
+            info_dict['score'] = len(self.env.snake.tail)
+
+        return self.env.to_image(), rew, is_done, info_dict
 
     def reset(self):
         self.env.reset()
@@ -90,7 +101,7 @@ if __name__ == '__main__':
             callback.rew = rew
         print(callback.rew)
 
-    env = gym.make('snakenv-v0', gs=10)
+    env = gym.make('snakenv-v0', gs=4, main_gs=4)
     # env = SnakeEnv()
     play.keys_to_action = KEYWORD_TO_KEY
     play.play(env, fps=10, keys_to_action=KEYWORD_TO_KEY, callback=callback)
