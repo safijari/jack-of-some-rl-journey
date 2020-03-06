@@ -23,7 +23,7 @@ def calc_entropy(logits):
     return tf.reduce_sum(p0 * (tf.math.log(z0) - a0), axis=-1)
 
 class SnakeModel(Model):
-    def __init__(self, input_shape, num_actions, gamma=0.99, lr=0.0001):
+    def __init__(self, input_shape, num_actions, gamma=0.99, lr=0.005):
         super(SnakeModel, self).__init__()
         self.gamma = gamma
         self.lr = lr
@@ -81,11 +81,11 @@ def train(model, states, rewards, values, actions):
 
         entropy = tf.reduce_mean(calc_entropy(logits))
 
-        loss = policy_loss + value_loss * 0.5  - 0.01*entropy
+        loss = policy_loss + value_loss * 0.5  - 0.1*entropy
 
     var_list = tape.watched_variables()
     grads = tape.gradient(loss, var_list)
-    grads, _ = tf.clip_by_global_norm(grads, 0.1)
+    grads, _ = tf.clip_by_global_norm(grads, 0.5)
     model.optimizer.apply_gradients(zip(grads, var_list))
     return loss, policy_loss, value_loss, entropy
 
@@ -136,7 +136,7 @@ def main():
                 wandb.log({'episode_reward': rew, 'num_eps': num_eps, 'score': info_dict['score']}, step=steps)
                 rew = 0
 
-        if steps_since_last_test >= 5000:
+        if steps_since_last_test >= 20000:
             print('testing')
             steps_since_last_test = 0
             trew = 0
