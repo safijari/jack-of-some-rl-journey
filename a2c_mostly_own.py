@@ -80,7 +80,7 @@ def train(model, states, rewards, values, actions):
 
         entropy = tf.reduce_mean(calc_entropy(logits))
 
-        loss = policy_loss + value_loss * 0.5  - 0.05*entropy
+        loss = policy_loss + value_loss * 0.5  - 0.1*entropy
 
     var_list = tape.watched_variables()
     grads = tape.gradient(loss, var_list)
@@ -90,19 +90,19 @@ def train(model, states, rewards, values, actions):
 
 def main():
     wandb.init('snake-a2c')
-    gs = 10
+    gs = 40
     main_gs = gs
-    batch_size = 16
+    batch_size = 128
     num_actions = 4
-    num_envs = 64
-    num_fruits = 1
+    num_envs = 8
+    num_fruits = gs
     envs = [gym.make('snakenv-v0', gs=gs, main_gs=main_gs, num_fruits=num_fruits) for _ in range(num_envs)]
 
     test_env = gym.make('snakenv-v0', gs=gs, main_gs=main_gs, num_fruits=num_fruits)
 
     state = np.stack([env.reset() for env in envs])
 
-    model = SnakeModel((84, 84, 1), num_actions)
+    model = SnakeModel((84*2, 84*2, 1), num_actions)
 
     sarsdv = []
     pbar = tqdm()

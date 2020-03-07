@@ -87,7 +87,7 @@ class SnakeEnv(gym.Env):
             im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
 
             self.viewer.imshow(im)
-            time.sleep(0.05)
+            # time.sleep(0.05)
             return self.viewer.isopen
             # return im
         elif mode == 'jack':
@@ -99,7 +99,7 @@ class SnakeEnv(gym.Env):
             self.viewer.imshow(cv2.resize(self.env.to_image(), (640, 640), interpolation=0))
             return self.viewer.isopen
         else:
-            return cv2.cvtColor(cv2.resize(im, (640, 640), interpolation=0), cv2.COLOR_GRAY2BGR)
+            return cv2.cvtColor(cv2.resize(im, (84*2, 84*2), interpolation=0), cv2.COLOR_GRAY2BGR)
 
 try:
     gym.envs.register(id="snakenv-v0", entry_point='snake_gym:SnakeEnv')
@@ -114,7 +114,7 @@ if __name__ == '__main__':
             callback.rew = rew
         print(callback.rew)
 
-    env = gym.make('snakenv-v0', gs=10, main_gs=40)
+    env = gym.make('snakenv-v0', gs=40, main_gs=40)
     # env = SnakeEnv()
     play.keys_to_action = KEYWORD_TO_KEY
     play.play(env, fps=10, keys_to_action=KEYWORD_TO_KEY, callback=callback)
