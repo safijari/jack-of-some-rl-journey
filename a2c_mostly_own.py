@@ -80,7 +80,7 @@ def train(model, states, rewards, values, actions):
 
         entropy = tf.reduce_mean(calc_entropy(logits))
 
-        loss = policy_loss + value_loss * 0.5  - 0.1*entropy
+        loss = policy_loss + value_loss * 0.5  - 0.05*entropy
 
     var_list = tape.watched_variables()
     grads = tape.gradient(loss, var_list)
