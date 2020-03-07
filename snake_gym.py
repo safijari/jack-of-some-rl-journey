@@ -21,6 +21,19 @@ action_map = {
     2: 'right'
 }
 
+action_map = {
+    0: 'up',
+    1: 'down',
+    2: 'left',
+    3: 'right'
+}
+KEYWORD_TO_KEY = {
+    (ord('i'), ): 0,
+    (ord('j'), ): 2,
+    (ord('k'), ): 1,
+    (ord('l'), ): 3,
+}
+
 
 reward_map = {
     SnakeState.OK: -0.001,
@@ -36,7 +49,7 @@ class SnakeEnv(gym.Env):
         super(SnakeEnv, self).__init__()
         self.env = Env(gs, main_gs=main_gs, num_fruits=num_fruits)
         self.viewer = None
-        self.action_space = spaces.Discrete(3)
+        self.action_space = spaces.Discrete(4)
         self.observation_space = spaces.Box(
             low=0, high=255, shape=(self.env.gs, self.env.gs, 3),
             dtype=np.uint8)
@@ -101,7 +114,7 @@ if __name__ == '__main__':
             callback.rew = rew
         print(callback.rew)
 
-    env = gym.make('snakenv-v0', gs=4, main_gs=4)
+    env = gym.make('snakenv-v0', gs=10, main_gs=40)
     # env = SnakeEnv()
     play.keys_to_action = KEYWORD_TO_KEY
     play.play(env, fps=10, keys_to_action=KEYWORD_TO_KEY, callback=callback)

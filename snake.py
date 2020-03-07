@@ -79,7 +79,8 @@ class Env:
     def update(self, direction=None):
         self.last_ate += 1
         snake = self.snake
-        self.snake.apply_turn(direction)
+        # self.snake.apply_turn(direction)
+        self.snake.apply_direction(direction)
         self.snake.update()
         out_enum = SnakeState.OK
 

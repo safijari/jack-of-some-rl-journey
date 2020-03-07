@@ -23,7 +23,7 @@ def calc_entropy(logits):
     return tf.reduce_sum(p0 * (tf.math.log(z0) - a0), axis=-1)
 
 class SnakeModel(Model):
-    def __init__(self, input_shape, num_actions, gamma=0.99, lr=0.005):
+    def __init__(self, input_shape, num_actions, gamma=0.99, lr=0.001):
         super(SnakeModel, self).__init__()
         self.gamma = gamma
         self.lr = lr
@@ -68,11 +68,10 @@ def _e(s):
 
 @tf.function
 def train(model, states, rewards, values, actions):
-
     advs = rewards - values
     with tf.GradientTape() as tape:
         logits = model.pcall(states)
-        neglogpac = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=tf.one_hot(actions, 3))
+        neglogpac = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=tf.one_hot(actions, 4))
         _policy_loss = neglogpac*tf.squeeze(advs)
         policy_loss = tf.reduce_mean(_policy_loss)
 
@@ -92,13 +91,16 @@ def train(model, states, rewards, values, actions):
 def main():
     wandb.init('snake-a2c')
     gs = 10
-    main_gs = 10
-    batch_size = 256
-    num_actions = 3
-    env = gym.make('snakenv-v0', gs=gs, main_gs=main_gs, num_fruits=gs)
-    test_env = gym.make('snakenv-v0', gs=gs, main_gs=main_gs, num_fruits=gs)
+    main_gs = gs
+    batch_size = 16
+    num_actions = 4
+    num_envs = 64
+    num_fruits = 1
+    envs = [gym.make('snakenv-v0', gs=gs, main_gs=main_gs, num_fruits=num_fruits) for _ in range(num_envs)]
 
-    state = env.reset()
+    test_env = gym.make('snakenv-v0', gs=gs, main_gs=main_gs, num_fruits=num_fruits)
+
+    state = np.stack([env.reset() for env in envs])
 
     model = SnakeModel((84, 84, 1), num_actions)
 
@@ -106,10 +108,9 @@ def main():
     pbar = tqdm()
 
     def _a(l, idx):
-        return np.array([m[idx] for m in l])
+        return np.concatenate([m[idx] for m in l])
 
-    rew = 0
-    episode_rewards = []
+    rew = np.zeros((num_envs, 1))
 
     steps = 0
     num_eps = 0
@@ -117,26 +118,32 @@ def main():
     while True:
         sarsdv = []
         for _ in range(batch_size):
-            steps += 1
-            steps_since_last_test += 1
-            pbar.update(1)
-            action_logits, action_probs, value = model(_e(state))
-            action = np.random.choice(range(num_actions), p=action_probs[0].numpy())
-            next_s, reward, done, info_dict = env.step(action)
+            steps += num_envs
+            steps_since_last_test += num_envs
+            pbar.update(num_envs)
+            action_logits, action_probs, value = model(state)
+
+            action = [np.random.choice(range(num_actions), p=ap.numpy()) for ap in action_probs]
+            # next_s, reward, done, info_dict = env.step(action)
+            next_s, reward, done, info_dict = zip(*[env.step(a) for env, a in zip(envs, action)])
+            next_s = np.stack(next_s)
+            reward = np.expand_dims(np.stack(reward), -1)
+            done = np.expand_dims(np.stack(done), -1)
 
             rew += reward
 
             sarsdv.append((state, action, reward, next_s, done, value))
 
-            state = next_s
+            state = next_s.copy()
 
-            if done:
-                num_eps += 1
-                state = env.reset()
-                wandb.log({'episode_reward': rew, 'num_eps': num_eps, 'score': info_dict['score']}, step=steps)
-                rew = 0
+            for i, env in enumerate(envs):
+                if done[i]:
+                    num_eps += 1
+                    state[i] = env.reset()
+                    wandb.log({'episode_reward': rew[i], 'num_eps': num_eps, 'score': info_dict[i]['score']}, step=steps)
+                    rew[i] = 0
 
-        if steps_since_last_test >= 20000:
+        if steps_since_last_test >= 100000:
             print('testing')
             steps_since_last_test = 0
             trew = 0
@@ -151,25 +158,19 @@ def main():
 
             wandb.log({'test_reward': trew, 'test_score': info_dict['score']}, step=steps)
 
-        R = 0
-
-        if not done:
-            _, _, R = model(_e(state))
-            R = float(R.numpy()[0])
+        _, _, R = model(state)
 
         discounted_rewards = []
         for _, _, r, _, d, _ in reversed(sarsdv):
-            if d:
-                R = 0
-            R = r + model.gamma * R
+            R = r + model.gamma * R * (1-d)
             discounted_rewards.append(R)
 
-
-        discounted_rewards = np.expand_dims(np.array(list(reversed(discounted_rewards))), 1)
+        discounted_rewards = np.concatenate(np.array(list(reversed(discounted_rewards))))
 
         states = _a(sarsdv, 0)
-        values = _a(sarsdv, -1)[:, :, 0]
+        values = _a(sarsdv, -1)
         actions = _a(sarsdv, 1)
+
 
         loss = train(model, states.astype('float32'), discounted_rewards.astype('float32'), values.astype('float32'), actions.astype('int32'))
         wandb.log(dict(zip(['loss', 'policy_loss', 'value_loss', 'entropy'], loss)), step=steps)
