@@ -67,7 +67,7 @@ action_dir_order = ['right', 'up', 'left', 'down']
 class Env:
     def __init__(self, grid_size=10, main_gs=10, num_fruits=10):
         self.gs = grid_size
-        # self.subgrid_loc = None
+        self.subgrid_loc = None
         self.main_gs = main_gs
         self.num_fruits = num_fruits
         self.reset()
@@ -77,12 +77,9 @@ class Env:
     def reset(self):
         self.step = 0
         self.last_ate = 0
-        # if (not self.subgrid_loc): # or (self.subgrid_loc and self.rand_grid_loc_always):
-        # self.gs = randint(5, 40)
         grid_size = self.gs
-        # self.subgrid_loc = Point(randint(0, self.main_gs - self.gs), randint(0, self.main_gs - self.gs))
+        self.subgrid_loc = Point(randint(0, self.main_gs - self.gs), randint(0, self.main_gs - self.gs))
         self.snake = Snake()
-        # self.snake.head = Point(randint(0, self.gs-2), randint(0, self.gs-1))
         self.snake.head = Point(self.gs//2, self.gs//2)
 
         pos_list = []
@@ -104,7 +101,6 @@ class Env:
     def update(self, direction=None):
         self.last_ate += 1
         snake = self.snake
-        # self.snake.apply_turn(direction)
         self.snake.apply_direction(direction)
         self.snake.update()
         out_enum = SnakeState.OK
@@ -196,7 +192,12 @@ class Env:
         if len(limbs) > 1:
             draw_sprite(canvas, limbs[-1].y, limbs[-1].x, 'tail', rotation=dir_map_to_angle[limbs[-2]-limbs[-1]])
 
-        return canvas
+        full_canvas = np.zeros((self.main_gs*scale, self.main_gs*scale), 'uint8')
+        h, w = canvas.shape
+        full_canvas[self.subgrid_loc.y*scale:self.subgrid_loc.y*scale+h,
+                    self.subgrid_loc.x*scale:self.subgrid_loc.x*scale+w] = canvas
+
+        return full_canvas
 
 class Snake:
     def __init__(self):
