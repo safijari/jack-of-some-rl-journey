@@ -1,4 +1,5 @@
 import tensorflow as tf
+import traceback
 from tqdm import tqdm
 import os
 import cv2
@@ -12,7 +13,7 @@ from tensorflow.keras import Model
 import gym
 from snake_gym import SnakeEnv
 import wandb
-from tf2_common import make_main_model
+from tf2_common import make_main_model, make_eights_model
 
 @tf.function
 def calc_entropy(logits):
@@ -27,15 +28,7 @@ class SnakeModel(Model):
         super(SnakeModel, self).__init__()
         self.gamma = gamma
         self.lr = lr
-        self.model = make_main_model(input_shape, num_actions, False)
-        self.policy_head = tf.keras.Sequential([
-            tf.keras.layers.Dense(512, activation='relu', kernel_initializer='random_uniform', bias_initializer='zeros'),
-            tf.keras.layers.Dense(num_actions)
-        ])
-        self.value_head = tf.keras.Sequential([
-            tf.keras.layers.Dense(512, activation='relu', kernel_initializer='random_uniform', bias_initializer='zeros'),
-            tf.keras.layers.Dense(1)
-        ])
+        self.model = make_eights_model(input_shape, num_actions)
         self.num_actions = num_actions
         self.image_shape = input_shape
         self.optimizer = tf.keras.optimizers.Adam(lr)
@@ -49,19 +42,18 @@ class SnakeModel(Model):
 
     @tf.function
     def call(self, x):
-        latent = self.model(x/255)
-        p = self.policy_head(latent)
-        return p, self.act(p), self.value_head(latent)
+        # latent = self.model(x/255)
+        # p = self.policy_head(latent)
+        p, v = self.model(x)
+        return p, self.act(p), v
 
     @tf.function
     def pcall(self, x):
-        latent = self.model(x/255)
-        return self.policy_head(latent)
+        return self.call(x)[0]
 
     @tf.function
     def vcall(self, x):
-        latent = self.model(x/255)
-        return self.value_head(latent)
+        return self.call(x)[1]
 
 def _e(s):
     return np.expand_dims(s, 0).astype('float32')
@@ -90,11 +82,11 @@ def train(model, states, rewards, values, actions):
 
 def main():
     wandb.init('snake-a2c')
-    gs = 40
-    main_gs = gs
-    batch_size = 128
+    gs = 20
+    main_gs = 40
+    batch_size = 16
     num_actions = 4
-    num_envs = 8
+    num_envs = 16
     num_fruits = gs
     envs = [gym.make('snakenv-v0', gs=gs, main_gs=main_gs, num_fruits=num_fruits) for _ in range(num_envs)]
 
@@ -102,7 +94,7 @@ def main():
 
     state = np.stack([env.reset() for env in envs])
 
-    model = SnakeModel((84*2, 84*2, 1), num_actions)
+    model = SnakeModel((320, 320, 1), num_actions)
 
     sarsdv = []
     pbar = tqdm()
@@ -116,64 +108,67 @@ def main():
     num_eps = 0
     steps_since_last_test = 0
     while True:
-        sarsdv = []
-        for _ in range(batch_size):
-            steps += num_envs
-            steps_since_last_test += num_envs
-            pbar.update(num_envs)
-            action_logits, action_probs, value = model(state)
+        try:
+            sarsdv = []
+            for _ in range(batch_size):
+                steps += num_envs
+                steps_since_last_test += num_envs
+                pbar.update(num_envs)
+                action_logits, action_probs, value = model(state)
 
-            action = [np.random.choice(range(num_actions), p=ap.numpy()) for ap in action_probs]
-            # next_s, reward, done, info_dict = env.step(action)
-            next_s, reward, done, info_dict = zip(*[env.step(a) for env, a in zip(envs, action)])
-            next_s = np.stack(next_s)
-            reward = np.expand_dims(np.stack(reward), -1)
-            done = np.expand_dims(np.stack(done), -1)
+                action = [np.random.choice(range(num_actions), p=ap.numpy()) for ap in action_probs]
+                # next_s, reward, done, info_dict = env.step(action)
+                next_s, reward, done, info_dict = zip(*[env.step(a) for env, a in zip(envs, action)])
+                next_s = np.stack(next_s)
+                reward = np.expand_dims(np.stack(reward), -1)
+                done = np.expand_dims(np.stack(done), -1)
 
-            rew += reward
+                rew += reward
 
-            sarsdv.append((state, action, reward, next_s, done, value))
+                sarsdv.append((state, action, reward, next_s, done, value))
 
-            state = next_s.copy()
+                state = next_s.copy()
 
-            for i, env in enumerate(envs):
-                if done[i]:
-                    num_eps += 1
-                    state[i] = env.reset()
-                    wandb.log({'episode_reward': rew[i], 'num_eps': num_eps, 'score': info_dict[i]['score']}, step=steps)
-                    rew[i] = 0
+                for i, env in enumerate(envs):
+                    if done[i]:
+                        num_eps += 1
+                        state[i] = env.reset()
+                        wandb.log({'episode_reward': rew[i], 'num_eps': num_eps, 'score': info_dict[i]['score']}, step=steps)
+                        rew[i] = 0
 
-        if steps_since_last_test >= 100000:
-            print('testing')
-            steps_since_last_test = 0
-            trew = 0
-            tstate = test_env.reset()
-            tdone = False
-            while not tdone:
-                test_env.render()
-                action_logits, action_probs, value = model(_e(tstate))
-                action = np.argmax(action_probs)
-                tstate, step_rew, tdone, info_dict = test_env.step(action)
-                trew += step_rew
+            if steps_since_last_test >= 100000:
+                model.model.save(f'20x20_subcanvas_a2c/{steps}.h5')
+                steps_since_last_test = 0
+                trew = 0
+                tstate = test_env.reset()
+                tdone = False
+                while not tdone:
+                    test_env.render()
+                    action_logits, action_probs, value = model(_e(tstate))
+                    action = np.argmax(action_probs)
+                    tstate, step_rew, tdone, info_dict = test_env.step(action)
+                    trew += step_rew
 
-            wandb.log({'test_reward': trew, 'test_score': info_dict['score']}, step=steps)
+                wandb.log({'test_reward': trew, 'test_score': info_dict['score']}, step=steps)
 
-        _, _, R = model(state)
+            _, _, R = model(state)
 
-        discounted_rewards = []
-        for _, _, r, _, d, _ in reversed(sarsdv):
-            R = r + model.gamma * R * (1-d)
-            discounted_rewards.append(R)
+            discounted_rewards = []
+            for _, _, r, _, d, _ in reversed(sarsdv):
+                R = r + model.gamma * R * (1-d)
+                discounted_rewards.append(R)
 
-        discounted_rewards = np.concatenate(np.array(list(reversed(discounted_rewards))))
+            discounted_rewards = np.concatenate(np.array(list(reversed(discounted_rewards))))
 
-        states = _a(sarsdv, 0)
-        values = _a(sarsdv, -1)
-        actions = _a(sarsdv, 1)
+            states = _a(sarsdv, 0)
+            values = _a(sarsdv, -1)
+            actions = _a(sarsdv, 1)
 
 
-        loss = train(model, states.astype('float32'), discounted_rewards.astype('float32'), values.astype('float32'), actions.astype('int32'))
-        wandb.log(dict(zip(['loss', 'policy_loss', 'value_loss', 'entropy'], loss)), step=steps)
+            loss = train(model, states.astype('float32'), discounted_rewards.astype('float32'), values.astype('float32'), actions.astype('int32'))
+            wandb.log(dict(zip(['loss', 'policy_loss', 'value_loss', 'entropy'], loss)), step=steps)
+        except Exception:
+            traceback.print_exc()
 
 
 if __name__ == '__main__':
