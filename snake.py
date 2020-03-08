@@ -10,6 +10,21 @@ class SnakeState(Enum):
     DED = 3
     WON = 4
 
+
+def _rotate_image(cv_image, _rotation_angle):
+    axes_order = (1, 0, 2) if len(cv_image.shape) == 3 else (1, 0)
+    if _rotation_angle == -90:
+        return np.transpose(cv_image, axes_order)[:, ::-1]
+
+    if _rotation_angle == 90:
+        return np.transpose(cv_image, axes_order)[::-1, :]
+
+    if _rotation_angle in [-180, 180]:
+        return cv_image[::-1, ::-1]
+
+    return cv_image
+
+
 @dataclass(eq=True, frozen=True)
 class Point:
     x: int
@@ -21,25 +36,33 @@ class Point:
     def __repr__(self):
         return f"(x: {self.x}, y: {self.y})"
 
+    def __sub__(self, other):
+        return Point(self.x-other.x, self.y-other.y)
+
 action_dir_map = {
     'up': Point(0, -1),
     'down': Point(0, 1),
     'left': Point(-1, 0),
-    'right': Point(1, 0)
+    'right': Point(1, 0),
+}
+
+dir_map_to_angle = {
+    Point(0, -1): 0,
+    Point(0, 1): 180,
+    Point(-1, 0): 90,
+    Point(1, 0): -90,
+}
+
+sprites = {
+    'head': cv2.imread('./sprites/head.png', 0),
+    'body': cv2.imread('./sprites/body.png', 0),
+    'turn': cv2.imread('./sprites/turn.png', 0),
+    'fruit': cv2.imread('./sprites/fruit.png', 0),
+    'tail': cv2.imread('./sprites/tail.png', 0),
 }
 
 action_dir_order = ['right', 'up', 'left', 'down']
 
-
-def draw_boxes(canvas, j, i, color, padding=2, scale=4):
-    canvas[j*scale+padding:j*scale+(scale-padding), i*scale+padding:i*scale+(scale-padding)] = color
-
-def connect_boxes(canvas, j1, i1, j2, i2, color, padding=2, scale=4):
-    J1 = min(j1*scale+padding, j1*scale+(scale-padding))
-    J2 = max(j2*scale+padding, j2*scale+(scale-padding))
-    I1 = min(i1*scale+padding, i1*scale+(scale-padding))
-    I2 = max(i2*scale+padding, i2*scale+(scale-padding))
-    canvas[J1:J2, I1:I2] = color
 
 class Env:
     def __init__(self, grid_size=10, main_gs=10, num_fruits=10):
@@ -120,47 +143,66 @@ class Env:
 
     def to_image(self):
         snake = self.snake
-        # out_main = np.zeros((self.main_gs, self.main_gs, 3), 'uint8')
-        # l = self.subgrid_loc
-        # out = out_main[l.y:l.y+self.gs, l.x:l.x+self.gs]
-        # out[:, :] = 32
         fl = self.fruit_loc
-        # out[fl.y, fl.x] = 255
-        # if self._bounds_check(snake.head):
-        #     out[snake.head.y, snake.head.x] = 128 + 32
-
-        # for i, s in enumerate(reversed(snake.tail)):
-        #     if self._bounds_check(s):
-        #         out[s.y, s.x] = 128
-
-        # return cv2.resize(out_main, (128, 128), interpolation=0)[:, :, 0:1]
-
         scale = 8
 
-        canvas = np.zeros((self.gs*scale, self.gs*scale), 'uint8') + 32
+        canvas = np.zeros((self.gs*scale, self.gs*scale), 'uint8') + 128
+
+        def apply_rotation(im, angle):
+            return _rotate_image(im, angle)
+
+        def draw_sprite(canvas, y, x, stype, scale=8, rotation=0):
+            s = scale
+            canvas[y*s:(y+1)*s, x*s:(x+1)*s] = apply_rotation(sprites[stype], rotation)
 
         for f in fl:
-            draw_boxes(canvas, f.y, f.x, 255, scale=scale, padding=1)
+            draw_sprite(canvas, f.y, f.x, 'fruit')
 
         if self._bounds_check(snake.head):
-            draw_boxes(canvas, snake.head.y, snake.head.x, 128, 1, scale=scale)
+            draw_sprite(canvas, snake.head.y, snake.head.x, 'head',
+                        rotation=dir_map_to_angle[self.snake.direction])
 
         last_el = snake.head
 
-        for i, s in enumerate(reversed(snake.tail)):
-            if self._bounds_check(s) and self._bounds_check(last_el):
-                # draw_boxes(canvas, s.y, s.x, 128, scale=scale)
-                connect_boxes(canvas, last_el.y, last_el.x, s.y, s.x,128, scale=scale, padding=2)
-                connect_boxes(canvas, s.y, s.x,last_el.y, last_el.x, 128, scale=scale, padding=2)
-                last_el = s
+        limbs = [snake.head] + list(reversed(snake.tail))
+        for nxt, curr, prev in zip(limbs, limbs[1:], limbs[2:]):
+            d2 = curr - prev
+            d1 = nxt - curr
+            if d1 == d2:
+                draw_sprite(canvas, curr.y, curr.x, 'body',
+                            rotation=dir_map_to_angle[d2])
+                continue
 
-        return np.expand_dims(cv2.resize(canvas, (84*2, 84*2), interpolation=0), -1)
+            rotation = None
+
+            d2 = curr - prev
+            d1 = nxt - curr
+
+            if (d1.x > 0 and d2.y < 0) or (d1.y > 0 and d2.x < 0):
+                rotation = 0
+            elif (d1.y > 0 and d2.x > 0) or (d1.x < 0 and d2.y < 0):
+                rotation = -90
+            elif (d1.x > 0 and d2.y > 0) or (d1.y < 0 and d2.x < 0):
+                rotation = 90
+            elif (d1.y < 0 and d2.x > 0) or (d1.x < 0 and d2.y > 0):
+                rotation = 180
+
+            if rotation is not None:
+                draw_sprite(canvas, curr.y, curr.x, 'turn',
+                            rotation=rotation)
+            else:
+                draw_sprite(canvas, curr.y, curr.x, 'fruit')
+
+        if len(limbs) > 1:
+            draw_sprite(canvas, limbs[-1].y, limbs[-1].x, 'tail', rotation=dir_map_to_angle[limbs[-2]-limbs[-1]])
+
+        return canvas
 
 class Snake:
     def __init__(self):
         self.head = Point(0, 0)
         self.tail = []
-        self.tail_size = 2
+        self.tail_size = 10
         self.direction = Point(1, 0)  # Need to add validation later
         self.dir_idx = 0
 

@@ -21,20 +21,6 @@ action_map = {
     2: 'right'
 }
 
-action_map = {
-    0: 'up',
-    1: 'down',
-    2: 'left',
-    3: 'right'
-}
-KEYWORD_TO_KEY = {
-    (ord('i'), ): 0,
-    (ord('j'), ): 2,
-    (ord('k'), ): 1,
-    (ord('l'), ): 3,
-}
-
-
 reward_map = {
     SnakeState.OK: 0,
     SnakeState.ATE: 1,
@@ -45,17 +31,26 @@ reward_map = {
 
 class SnakeEnv(gym.Env):
     metadata = {'render.modes': ['human', 'rgb_array']}
-    def __init__(self, gs=10, main_gs=10, num_fruits=10):
+    def __init__(self, gs=10, main_gs=10, num_fruits=10, action_map=None):
         super(SnakeEnv, self).__init__()
         self.env = Env(gs, main_gs=main_gs, num_fruits=num_fruits)
         self.viewer = None
-        self.action_space = spaces.Discrete(4)
+        self.action_map = {
+            0: 'up',
+            1: 'down',
+            2: 'left',
+            3: 'right'
+        }
+        if action_map is not None:
+            self.action_map = action_map
+
+        self.action_space = spaces.Discrete(len(self.action_map.keys()))
         self.observation_space = spaces.Box(
             low=0, high=255, shape=(self.env.gs, self.env.gs, 3),
             dtype=np.uint8)
 
     def step(self, action):
-        enum = self.env.update(action_map[action])
+        enum = self.env.update(self.action_map[action])
 
         # if enum != SnakeState.DED:
         rew = reward_map[enum]
@@ -99,7 +94,7 @@ class SnakeEnv(gym.Env):
             self.viewer.imshow(cv2.resize(self.env.to_image(), (640, 640), interpolation=0))
             return self.viewer.isopen
         else:
-            return cv2.cvtColor(cv2.resize(im, (84*2, 84*2), interpolation=0), cv2.COLOR_GRAY2BGR)
+            return cv2.cvtColor(cv2.resize(im, (640*2, 640*2), interpolation=0), cv2.COLOR_GRAY2BGR)
 
 try:
     gym.envs.register(id="snakenv-v0", entry_point='snake_gym:SnakeEnv')
@@ -107,6 +102,21 @@ except Exception:
     print('already done?')
 
 if __name__ == '__main__':
+    action_map = {
+        0: None,
+        1: 'up',
+        2: 'down',
+        3: 'left',
+        4: 'right'
+    }
+
+    KEYWORD_TO_KEY = {
+        (ord('i'), ): 1,
+        (ord('j'), ): 3,
+        (ord('k'), ): 2,
+        (ord('l'), ): 4,
+    }
+
     def callback(obs_t, obs_tp1, action, rew, done, info):
         try:
             callback.rew += rew
@@ -114,7 +124,6 @@ if __name__ == '__main__':
             callback.rew = rew
         print(callback.rew)
 
-    env = gym.make('snakenv-v0', gs=40, main_gs=40)
-    # env = SnakeEnv()
+    env = gym.make('snakenv-v0', gs=40, main_gs=40, action_map=action_map)
     play.keys_to_action = KEYWORD_TO_KEY
-    play.play(env, fps=10, keys_to_action=KEYWORD_TO_KEY, callback=callback)
+    play.play(env, fps=15, keys_to_action=KEYWORD_TO_KEY, callback=callback)
