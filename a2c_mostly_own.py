@@ -29,7 +29,7 @@ class SnakeModel(Model):
         super(SnakeModel, self).__init__()
         self.gamma = gamma
         self.lr = lr
-        self.model = make_eights_model(input_shape, num_actions)
+        self.model, self.policy_head, self.value_head = make_main_model(input_shape, num_actions)
         self.num_actions = num_actions
         self.image_shape = input_shape
         self.optimizer = tf.keras.optimizers.Adam(lr)
@@ -43,18 +43,20 @@ class SnakeModel(Model):
 
     @tf.function
     def call(self, x):
-        # latent = self.model(x/255)
-        # p = self.policy_head(latent)
-        p, v = self.model(x/255.0)
+        latent = self.model(x/255)
+        p = self.policy_head(latent)
+        v = self.value_head(latent)
         return p, self.act(p), v
 
     @tf.function
     def pcall(self, x):
-        return self.call(x)[0]
+        latent = self.model(x/255)
+        return self.policy_head(latent)
 
     @tf.function
     def vcall(self, x):
-        return self.call(x)[2]
+        latent = self.model(x/255)
+        return self.value_head(latent)
 
 def _e(s):
     return np.expand_dims(s, 0).astype('float32')
@@ -83,11 +85,12 @@ def train(model, states, rewards, values, actions):
 
 def main():
     wandb.init('snake-a2c')
+    summaries_done = False
     gs = 10
     main_gs = 40
-    batch_size = 32
+    batch_size = 16
     num_actions = 4
-    num_envs = 16
+    num_envs = 32
     num_fruits = 1
     envs = [gym.make('snakenv-v0', gs=gs, main_gs=main_gs, num_fruits=num_fruits) for _ in range(num_envs)]
 
@@ -95,7 +98,17 @@ def main():
 
     state = np.stack([env.reset() for env in envs])
 
-    model = SnakeModel((320, 320, 1), num_actions)
+    sh = test_env.reset().shape[1]
+    test_env.render()
+
+    model = SnakeModel((sh, sh, 1), num_actions)
+    print(model.model.summary())
+
+    template = '/home/jack/jack-of-some-rl-journey/10x10_subcanvas_dm_model/2007040_'
+    m = model(state)
+    model.model.load_weights(template + 'main.h5')
+    model.policy_head.load_weights(template + 'policy.h5')
+    model.value_head.load_weights(template + 'value.h5')
 
     sarsdv = []
     pbar = tqdm()
@@ -118,8 +131,9 @@ def main():
                 action_logits, action_probs, value = model(state)
 
                 action = [np.random.choice(range(num_actions), p=ap.numpy()) for ap in action_probs]
-                # next_s, reward, done, info_dict = env.step(action)
                 next_s, reward, done, info_dict = zip(*[env.step(a) for env, a in zip(envs, action)])
+                # for env in envs[::4]:
+                #     env.render()
                 next_s = np.stack(next_s)
                 reward = np.expand_dims(np.stack(reward), -1)
                 done = np.expand_dims(np.stack(done), -1)
@@ -138,9 +152,12 @@ def main():
                         rew[i] = 0
 
             if steps_since_last_test >= 100000:
-                if not os.path.exists('10x10_subcanvas_a2c'):
-                    os.mkdir('10x10_subcanvas_a2c')
-                model.model.save(f'10x10_subcanvas_a2c/{steps}.h5')
+                folder = '10x10_subcanvas_dm_model'
+                if not os.path.exists(folder):
+                    os.mkdir(folder)
+                model.model.save(f'{folder}/{steps}_main.h5')
+                model.policy_head.save(f'{folder}/{steps}_policy.h5')
+                model.value_head.save(f'{folder}/{steps}_value.h5')
                 steps_since_last_test = 0
                 trew = 0
                 tstate = test_env.reset()
@@ -170,6 +187,10 @@ def main():
 
             loss = train(model, states.astype('float32'), discounted_rewards.astype('float32'), values.astype('float32'), actions.astype('int32'))
             wandb.log(dict(zip(['loss', 'policy_loss', 'value_loss', 'entropy'], loss)), step=steps)
+            if not summaries_done:
+                print(model.policy_head.summary())
+                print(model.value_head.summary())
+                summaries_done = True
         except Exception:
             traceback.print_exc()
 
