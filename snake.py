@@ -72,6 +72,8 @@ class Env:
         self.num_fruits = num_fruits
         self.reset()
 
+        self.update()
+
     def reset(self):
         self.step = 0
         self.last_ate = 0
@@ -146,7 +148,7 @@ class Env:
         fl = self.fruit_loc
         scale = 8
 
-        canvas = np.zeros((self.gs*scale, self.gs*scale), 'uint8') + 128
+        canvas = np.zeros((self.gs*scale, self.gs*scale), 'uint8') + 64
 
         def apply_rotation(im, angle):
             return _rotate_image(im, angle)
@@ -190,8 +192,6 @@ class Env:
             if rotation is not None:
                 draw_sprite(canvas, curr.y, curr.x, 'turn',
                             rotation=rotation)
-            else:
-                draw_sprite(canvas, curr.y, curr.x, 'fruit')
 
         if len(limbs) > 1:
             draw_sprite(canvas, limbs[-1].y, limbs[-1].x, 'tail', rotation=dir_map_to_angle[limbs[-2]-limbs[-1]])
@@ -202,7 +202,7 @@ class Snake:
     def __init__(self):
         self.head = Point(0, 0)
         self.tail = []
-        self.tail_size = 10
+        self.tail_size = 2
         self.direction = Point(1, 0)  # Need to add validation later
         self.dir_idx = 0
 
