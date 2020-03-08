@@ -64,11 +64,11 @@ class SnakeEnv(gym.Env):
         if is_done:
             info_dict['score'] = len(self.env.snake.tail)
 
-        return self.env.to_image(), rew, is_done, info_dict
+        return np.expand_dims(self.env.to_image().astype('float32'), -1), rew, is_done, info_dict
 
     def reset(self):
         self.env.reset()
-        return self.env.to_image()
+        return np.expand_dims(self.env.to_image().astype('float32'), -1)
 
     def render(self, mode='human', close=False):
         im = self.env.to_image()
@@ -94,7 +94,7 @@ class SnakeEnv(gym.Env):
             self.viewer.imshow(cv2.resize(self.env.to_image(), (640, 640), interpolation=0))
             return self.viewer.isopen
         else:
-            return cv2.cvtColor(cv2.resize(im, (640*2, 640*2), interpolation=0), cv2.COLOR_GRAY2BGR)
+            return cv2.cvtColor(cv2.resize(im, (640, 640), interpolation=0), cv2.COLOR_GRAY2BGR)
 
 try:
     gym.envs.register(id="snakenv-v0", entry_point='snake_gym:SnakeEnv')

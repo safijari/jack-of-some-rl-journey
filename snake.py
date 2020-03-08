@@ -144,7 +144,11 @@ class Env:
         fl = self.fruit_loc
         scale = 8
 
-        canvas = np.zeros((self.gs*scale, self.gs*scale), 'uint8') + 64
+        full_canvas = np.zeros((self.main_gs*scale, self.main_gs*scale), 'uint8')
+        h, w = self.gs*8, self.gs*8
+        canvas = full_canvas[self.subgrid_loc.y*scale:self.subgrid_loc.y*scale+h,
+                             self.subgrid_loc.x*scale:self.subgrid_loc.x*scale+w]
+        canvas += 64
 
         def apply_rotation(im, angle):
             return _rotate_image(im, angle)
@@ -159,8 +163,6 @@ class Env:
         if self._bounds_check(snake.head):
             draw_sprite(canvas, snake.head.y, snake.head.x, 'head',
                         rotation=dir_map_to_angle[self.snake.direction])
-
-        last_el = snake.head
 
         limbs = [snake.head] + list(reversed(snake.tail))
         for nxt, curr, prev in zip(limbs, limbs[1:], limbs[2:]):
@@ -191,11 +193,6 @@ class Env:
 
         if len(limbs) > 1:
             draw_sprite(canvas, limbs[-1].y, limbs[-1].x, 'tail', rotation=dir_map_to_angle[limbs[-2]-limbs[-1]])
-
-        full_canvas = np.zeros((self.main_gs*scale, self.main_gs*scale), 'uint8')
-        h, w = canvas.shape
-        full_canvas[self.subgrid_loc.y*scale:self.subgrid_loc.y*scale+h,
-                    self.subgrid_loc.x*scale:self.subgrid_loc.x*scale+w] = canvas
 
         return full_canvas
 

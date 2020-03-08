@@ -1,4 +1,5 @@
 import tensorflow as tf
+import os
 import traceback
 from tqdm import tqdm
 import os
@@ -44,7 +45,7 @@ class SnakeModel(Model):
     def call(self, x):
         # latent = self.model(x/255)
         # p = self.policy_head(latent)
-        p, v = self.model(x)
+        p, v = self.model(x/255.0)
         return p, self.act(p), v
 
     @tf.function
@@ -53,7 +54,7 @@ class SnakeModel(Model):
 
     @tf.function
     def vcall(self, x):
-        return self.call(x)[1]
+        return self.call(x)[2]
 
 def _e(s):
     return np.expand_dims(s, 0).astype('float32')
@@ -82,12 +83,12 @@ def train(model, states, rewards, values, actions):
 
 def main():
     wandb.init('snake-a2c')
-    gs = 20
+    gs = 10
     main_gs = 40
-    batch_size = 16
+    batch_size = 32
     num_actions = 4
     num_envs = 16
-    num_fruits = gs
+    num_fruits = 1
     envs = [gym.make('snakenv-v0', gs=gs, main_gs=main_gs, num_fruits=num_fruits) for _ in range(num_envs)]
 
     test_env = gym.make('snakenv-v0', gs=gs, main_gs=main_gs, num_fruits=num_fruits)
@@ -137,7 +138,9 @@ def main():
                         rew[i] = 0
 
             if steps_since_last_test >= 100000:
-                model.model.save(f'20x20_subcanvas_a2c/{steps}.h5')
+                if not os.path.exists('10x10_subcanvas_a2c'):
+                    os.mkdir('10x10_subcanvas_a2c')
+                model.model.save(f'10x10_subcanvas_a2c/{steps}.h5')
                 steps_since_last_test = 0
                 trew = 0
                 tstate = test_env.reset()
