@@ -62,6 +62,7 @@ class SnakeEnv(gym.Env):
         is_done = (enum in [SnakeState.DED, SnakeState.WON])
         info_dict = {}
         if is_done:
+            rew *= len(self.env.snake.tail)*0.1
             info_dict['score'] = len(self.env.snake.tail)
 
         return np.expand_dims(self.env.to_image().astype('float32'), -1), rew, is_done, info_dict
@@ -82,9 +83,7 @@ class SnakeEnv(gym.Env):
             im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
 
             self.viewer.imshow(im)
-            # time.sleep(0.05)
             return self.viewer.isopen
-            # return im
         elif mode == 'jack':
             if self.viewer is None:
                 self.viewer = rendering.SimpleImageViewer(maxwidth=640)

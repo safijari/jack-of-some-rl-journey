@@ -78,7 +78,9 @@ class Env:
         self.step = 0
         self.last_ate = 0
         grid_size = self.gs
-        self.subgrid_loc = Point(randint(0, self.main_gs - self.gs), randint(0, self.main_gs - self.gs))
+        # self.subgrid_loc = Point(randint(0, self.main_gs - self.gs), randint(0, self.main_gs - self.gs))
+        if grid_size == 38:
+            self.subgrid_loc = Point(1, 1)
         self.snake = Snake()
         self.snake.head = Point(self.gs//2, self.gs//2)
 
