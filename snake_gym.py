@@ -22,7 +22,7 @@ action_map = {
 }
 
 reward_map = {
-    SnakeState.OK: 1,
+    SnakeState.OK: -0.001,
     SnakeState.ATE: 1,
     SnakeState.DED: -1,
     SnakeState.WON: 1
@@ -58,12 +58,6 @@ class SnakeEnv(gym.Env):
         info_dict = {}
         if is_done:
             info_dict['score'] = len(self.env.snake.tail) - 2
-        elif enum == SnakeState.OK:
-            d = self.dist
-            mult = -0.1 if d > self.last_dist else 0.1
-            mult /= len(self.env.snake.tail)
-            rew *= mult
-            self.last_dist = d
 
         return np.expand_dims(self.env.to_image().astype('float32'), -1), rew, is_done, info_dict
 

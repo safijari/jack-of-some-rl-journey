@@ -29,7 +29,7 @@ def calc_entropy(logits):
     return tf.reduce_sum(p0 * (tf.math.log(z0) - a0), axis=-1)
 
 class SnakeModel(Model):
-    def __init__(self, input_shape, num_actions, gamma=0.99, lr=0.0005):
+    def __init__(self, input_shape, num_actions, gamma=0.99, lr=0.0007):
         super(SnakeModel, self).__init__()
         self.gamma = gamma
         self.lr = lr
@@ -79,18 +79,20 @@ def train(model, states, rewards, values, actions):
 
         entropy = tf.reduce_mean(calc_entropy(logits))
 
-        loss = policy_loss + value_loss * 0.5  - 0.01*entropy
+        loss = policy_loss + value_loss * 0.5  - 0.1*entropy
 
     var_list = tape.watched_variables()
     grads = tape.gradient(loss, var_list)
-    # grads, _ = tf.clip_by_global_norm(grads, 0.1)
+    grads, _ = tf.clip_by_global_norm(grads, 0.5)
     model.optimizer.apply_gradients(zip(grads, var_list))
     return loss, policy_loss, value_loss, entropy
 
-def run_train_step(state, rew, pbar, envs, model, num_actions, batch_size, steps, num_envs, num_eps, viz=False):
+def run_train_step(state, rew, pbar, envs, model, num_actions, batch_size, steps, num_envs, num_eps, viz=False, rollout=None):
+    if rollout is None:
+        rollout = batch_size
     sarsdv = []
     num_steps = 0
-    for _ in range(batch_size):
+    for _ in range(rollout):
         num_steps += num_envs
         pbar.update(num_envs)
         action_logits, action_probs, value = model(state)
@@ -102,13 +104,14 @@ def run_train_step(state, rew, pbar, envs, model, num_actions, batch_size, steps
                 env.render()
                 if i > 3:
                     continue
+
         next_s = np.stack(next_s)
         reward = np.expand_dims(np.stack(reward), -1)
         done = np.expand_dims(np.stack(done), -1)
 
         rew += reward
 
-        sarsdv.append((state, action, reward, next_s, done, value))
+        sarsdv.append((state, action, reward, None, done, value))
 
         state = next_s.copy()
 
@@ -126,6 +129,16 @@ def run_train_step(state, rew, pbar, envs, model, num_actions, batch_size, steps
         R = r + model.gamma * R * (1-d)
         discounted_rewards.append(R)
 
+    tots = len(sarsdv)
+
+    idxs = np.random.choice(np.arange(tots), batch_size)
+
+    # discounted_rewards = np.concatenate(np.array(list(reversed(discounted_rewards))))[idxs]
+
+    # states = _a(sarsdv, 0)[idxs]
+    # values = _a(sarsdv, -1)[idxs]
+    # actions = _a(sarsdv, 1)[idxs]
+
     discounted_rewards = np.concatenate(np.array(list(reversed(discounted_rewards))))
 
     states = _a(sarsdv, 0)
@@ -135,6 +148,7 @@ def run_train_step(state, rew, pbar, envs, model, num_actions, batch_size, steps
     loss = train(model, states.astype('float32'), discounted_rewards.astype('float32'), values.astype('float32'), actions.astype('int32'))
     wandb.log(dict(zip(['loss', 'policy_loss', 'value_loss', 'entropy'], loss)), step=steps+num_steps)
     return state, num_steps, num_eps
+
 
 def run_test_step(model, test_env, human_delay=0):
     trew = 0
@@ -156,10 +170,11 @@ def main(run_name, gs=0, weights_to_load=None, test_only=False, viz_training=Fal
     if not test_only:
         wandb.init('snake-a2c', name=run_name)
     summaries_done = False
-    main_gs = 22
-    batch_size = 128//4
+    main_gs = 12
+    rollout = 128
     num_actions = 4
-    num_envs = 4*16
+    num_envs = 16
+    # batch_size = rollout*num_envs
     envs = [gym.make('snakenv-v0', gs=gs, main_gs=main_gs, num_fruits=num_fruits) for _ in range(num_envs)]
 
     test_env = gym.make('snakenv-v0', gs=gs, main_gs=main_gs, num_fruits=num_fruits)
@@ -191,7 +206,7 @@ def main(run_name, gs=0, weights_to_load=None, test_only=False, viz_training=Fal
     while True:
         try:
             if not test_only:
-                state, num_steps, num_eps = run_train_step(state=state, rew=rew, pbar=pbar, envs=envs, model=model, num_actions=num_actions, batch_size=batch_size, steps=steps, num_envs=num_envs, num_eps=num_eps, viz=viz_training)
+                state, num_steps, num_eps = run_train_step(state=state, rew=rew, pbar=pbar, envs=envs, model=model, num_actions=num_actions, rollout=rollout, batch_size=batch_size, steps=steps, num_envs=num_envs, num_eps=num_eps, viz=viz_training)
                 steps += num_steps
                 steps_since_last_test += num_steps
                 if steps_since_last_test >= 500000:
