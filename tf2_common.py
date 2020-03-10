@@ -8,7 +8,7 @@ def make_main_model(input_shape, num_actions):
             Conv2D(32, 8, padding='valid', activation='relu', strides=(4, 4), input_shape=input_shape, kernel_initializer='random_uniform', bias_initializer='zeros'),
             Conv2D(64, 4, padding='valid', activation='relu', strides=(2, 2), kernel_initializer='random_uniform', bias_initializer='zeros'),
             Conv2D(64, 4, padding='valid', activation='relu', strides=(2, 2), kernel_initializer='random_uniform', bias_initializer='zeros'),
-            Conv2D(128, 4, padding='valid', activation='relu', strides=(2, 2), kernel_initializer='random_uniform', bias_initializer='zeros'),
+            # Conv2D(128, 4, padding='valid', activation='relu', strides=(2, 2), kernel_initializer='random_uniform', bias_initializer='zeros'),
             Conv2D(128, 3, padding='valid', activation='relu', strides=(1, 1), kernel_initializer='random_uniform', bias_initializer='zeros'),
             Flatten(),
         ]

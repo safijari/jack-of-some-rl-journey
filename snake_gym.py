@@ -22,7 +22,7 @@ action_map = {
 }
 
 reward_map = {
-    SnakeState.OK: -0.01,
+    SnakeState.OK: 1,
     SnakeState.ATE: 1,
     SnakeState.DED: -1,
     SnakeState.WON: 1
@@ -52,23 +52,28 @@ class SnakeEnv(gym.Env):
     def step(self, action):
         enum = self.env.update(self.action_map[action])
 
-        # if enum != SnakeState.DED:
         rew = reward_map[enum]
-        # else:
-        #     rew = reward_map[enum]*(self.env.gs**2)
-
-        # rew /= (self.env.gs**2)
 
         is_done = (enum in [SnakeState.DED, SnakeState.WON])
         info_dict = {}
         if is_done:
-            rew *= len(self.env.snake.tail)*0.1
-            info_dict['score'] = len(self.env.snake.tail)
+            info_dict['score'] = len(self.env.snake.tail) - 2
+        elif enum == SnakeState.OK:
+            d = self.dist
+            mult = -0.1 if d > self.last_dist else 0.1
+            mult /= len(self.env.snake.tail)
+            rew *= mult
+            self.last_dist = d
 
         return np.expand_dims(self.env.to_image().astype('float32'), -1), rew, is_done, info_dict
 
+    @property
+    def dist(self):
+        return self.env.fruit_loc[0].dist(self.env.snake.head)
+
     def reset(self):
         self.env.reset()
+        self.last_dist = self.dist
         return np.expand_dims(self.env.to_image().astype('float32'), -1)
 
     def render(self, mode='human', close=False):
@@ -117,12 +122,8 @@ if __name__ == '__main__':
     }
 
     def callback(obs_t, obs_tp1, action, rew, done, info):
-        try:
-            callback.rew += rew
-        except Exception:
-            callback.rew = rew
-        print(callback.rew)
+        print(rew)
 
-    env = gym.make('snakenv-v0', gs=20, main_gs=40, action_map=action_map)
+    env = gym.make('snakenv-v0', gs=20, main_gs=40, action_map=action_map, num_fruits=1)
     play.keys_to_action = KEYWORD_TO_KEY
     play.play(env, fps=15, keys_to_action=KEYWORD_TO_KEY, callback=callback)

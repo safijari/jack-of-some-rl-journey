@@ -3,6 +3,7 @@ import cv2
 from random import choice, randint, sample
 from dataclasses import dataclass
 from enum import Enum
+import math
 
 class SnakeState(Enum):
     OK = 1
@@ -38,6 +39,10 @@ class Point:
 
     def __sub__(self, other):
         return Point(self.x-other.x, self.y-other.y)
+
+    def dist(self, other):
+        m = Point(self.x-other.x, self.y-other.y)
+        return abs(m.x) + abs(m.y)
 
 action_dir_map = {
     'up': Point(0, -1),
@@ -79,7 +84,7 @@ class Env:
         self.last_ate = 0
         grid_size = self.gs
         # self.subgrid_loc = Point(randint(0, self.main_gs - self.gs), randint(0, self.main_gs - self.gs))
-        if grid_size == 38:
+        if grid_size in [10, 20, 38]:
             self.subgrid_loc = Point(1, 1)
         self.snake = Snake()
         self.snake.head = Point(self.gs//2, self.gs//2)

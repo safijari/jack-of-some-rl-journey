@@ -29,7 +29,7 @@ def calc_entropy(logits):
     return tf.reduce_sum(p0 * (tf.math.log(z0) - a0), axis=-1)
 
 class SnakeModel(Model):
-    def __init__(self, input_shape, num_actions, gamma=0.999, lr=0.0001):
+    def __init__(self, input_shape, num_actions, gamma=0.99, lr=0.0005):
         super(SnakeModel, self).__init__()
         self.gamma = gamma
         self.lr = lr
@@ -83,7 +83,7 @@ def train(model, states, rewards, values, actions):
 
     var_list = tape.watched_variables()
     grads = tape.gradient(loss, var_list)
-    grads, _ = tf.clip_by_global_norm(grads, 0.5)
+    # grads, _ = tf.clip_by_global_norm(grads, 0.1)
     model.optimizer.apply_gradients(zip(grads, var_list))
     return loss, policy_loss, value_loss, entropy
 
@@ -116,25 +116,25 @@ def run_train_step(state, rew, pbar, envs, model, num_actions, batch_size, steps
             if done[i]:
                 num_eps += 1
                 state[i] = env.reset()
-                wandb.log({'episode_reward': rew[i], 'num_eps': num_eps, 'score': info_dict[i]['score']}, step=steps)
+                wandb.log({'episode_reward': rew[i], 'num_eps': num_eps, 'score': info_dict[i]['score']}, step=steps + num_steps - (len(envs)-i))
                 rew[i] = 0
 
-        _, _, R = model(state)
+    _, _, R = model(state)
 
-        discounted_rewards = []
-        for _, _, r, _, d, _ in reversed(sarsdv):
-            R = r + model.gamma * R * (1-d)
-            discounted_rewards.append(R)
+    discounted_rewards = []
+    for _, _, r, _, d, _ in reversed(sarsdv):
+        R = r + model.gamma * R * (1-d)
+        discounted_rewards.append(R)
 
-        discounted_rewards = np.concatenate(np.array(list(reversed(discounted_rewards))))
+    discounted_rewards = np.concatenate(np.array(list(reversed(discounted_rewards))))
 
-        states = _a(sarsdv, 0)
-        values = _a(sarsdv, -1)
-        actions = _a(sarsdv, 1)
+    states = _a(sarsdv, 0)
+    values = _a(sarsdv, -1)
+    actions = _a(sarsdv, 1)
 
-        loss = train(model, states.astype('float32'), discounted_rewards.astype('float32'), values.astype('float32'), actions.astype('int32'))
-        wandb.log(dict(zip(['loss', 'policy_loss', 'value_loss', 'entropy'], loss)), step=steps)
-        return state, num_steps, num_eps
+    loss = train(model, states.astype('float32'), discounted_rewards.astype('float32'), values.astype('float32'), actions.astype('int32'))
+    wandb.log(dict(zip(['loss', 'policy_loss', 'value_loss', 'entropy'], loss)), step=steps+num_steps)
+    return state, num_steps, num_eps
 
 def run_test_step(model, test_env, human_delay=0):
     trew = 0
@@ -156,10 +156,10 @@ def main(run_name, gs=0, weights_to_load=None, test_only=False, viz_training=Fal
     if not test_only:
         wandb.init('snake-a2c', name=run_name)
     summaries_done = False
-    main_gs = 40
-    batch_size = 50*8
+    main_gs = 22
+    batch_size = 128//4
     num_actions = 4
-    num_envs = 16
+    num_envs = 4*16
     envs = [gym.make('snakenv-v0', gs=gs, main_gs=main_gs, num_fruits=num_fruits) for _ in range(num_envs)]
 
     test_env = gym.make('snakenv-v0', gs=gs, main_gs=main_gs, num_fruits=num_fruits)
@@ -204,7 +204,7 @@ def main(run_name, gs=0, weights_to_load=None, test_only=False, viz_training=Fal
 
             if (steps_since_last_test >= 500000) or test_only:
                 steps_since_last_test = 0
-                trew, tscore = run_test_step(model, test_env, 1/30.0)
+                trew, tscore = run_test_step(model, test_env, 1/60.0)
                 if not test_only:
                     wandb.log({'test_reward': trew, 'test_score': tscore}, step=steps)
 
