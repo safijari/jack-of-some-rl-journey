@@ -90,8 +90,8 @@ def train(model, states, rewards, values, actions):
 
 def main():
     wandb.init('snake-a2c')
-    gs = 10
-    main_gs = 12
+    gs = 20
+    main_gs = 22
     batch_size = 16
     num_actions = 4
     num_envs = 64
@@ -104,7 +104,8 @@ def main():
 
     state = np.stack([env.reset() for env in envs])
 
-    model = SnakeModel((96, 96, 1), num_actions)
+    model = SnakeModel((80*2 + 16, 80*2 + 16, 1), num_actions)
+    model.model.load_weights('./10x10_fully_successful_sprites/10838016_main.h5')
 
     sarsdv = []
     pbar = tqdm()
@@ -147,8 +148,8 @@ def main():
                     wandb.log({'episode_reward': rew[i], 'num_eps': num_eps, 'score': info_dict[i]['score']}, step=steps)
                     rew[i] = 0
 
-        if steps_since_last_test >= 100000:
-            folder = '10x10aaaaaaaa'
+        if steps_since_last_test >= 250000:
+            folder = '20x20aaaaaaaa'
             if not os.path.exists(folder):
                 os.mkdir(folder)
             model.model.save(f'{folder}/{steps}_main.h5')
