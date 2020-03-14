@@ -25,6 +25,9 @@ share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+*.h5*
+wandb*
+*log.json
 MANIFEST
 
 # PyInstaller
@@ -135,3 +138,5 @@ wandb/
 runs/
 *.h5*
 *.h5
+runs/
+*.pth

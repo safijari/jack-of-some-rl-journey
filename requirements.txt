@@ -1,9 +1,10 @@
 threeviz
 numpy
 tensorflow
-torch
 opencv-python
 matplotlib
 gym
 pygame
 keras-rl
+ptan==0.6
+tensorboardX

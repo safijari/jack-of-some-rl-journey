@@ -34,6 +34,16 @@ class Point:
     def copy(self, xincr, yincr):
         return Point(self.x + xincr, self.y + yincr)
 
+    def to_dict(self):
+        return {
+            'x': self.x,
+            'y': self.y,
+        }
+
+    @classmethod
+    def from_dict(cls, d):
+        return cls(d['x'], d['y'])
+
     def __repr__(self):
         return f"(x: {self.x}, y: {self.y})"
 
@@ -76,6 +86,7 @@ class Env:
         self.main_gs = main_gs
         self.num_fruits = num_fruits
         self.reset()
+        self.seed = seed
 
         self.update()
 
@@ -104,6 +115,18 @@ class Env:
         stamina = a + len(self.snake.tail) + 1
         stamina = min(a * 2, stamina)
         return stamina
+
+    def to_dict(self):
+        return {
+            'snake': self.snake.to_dict(),
+            'fruit': self.fruit_loc.to_dict()
+        }
+
+
+    def from_dict(self, d):
+        self.snake = Snake.from_dict(d['snake'])
+        self.fruit_location = Point.from_dict(d['fruit'])
+
 
     def update(self, direction=None):
         self.last_ate += 1
@@ -146,7 +169,7 @@ class Env:
     def _bounds_check(self, pos):
         return pos.x >= 0 and pos.x < self.gs and pos.y >= 0 and pos.y < self.gs
 
-    def to_image(self):
+    def to_image(self, gradation=True):
         snake = self.snake
         fl = self.fruit_loc
         scale = 8
@@ -204,10 +227,10 @@ class Env:
         return full_canvas
 
 class Snake:
-    def __init__(self):
-        self.head = Point(0, 0)
+    def __init__(self, x: int = 0, y: int = 0):
+        self.head = Point(x, y)
         self.tail = []
-        self.tail_size = 2
+        self.tail_size = 0
         self.direction = Point(1, 0)  # Need to add validation later
         self.dir_idx = 0
 
@@ -217,6 +240,23 @@ class Snake:
                 return True
         return False
 
+    def to_dict(self):
+        return {
+            'head': self.head.to_dict(),
+            'tail': [t.to_dict() for t in self.tail],
+            'tail_size': self.tail_size,
+            'direction': self.direction.to_dict()
+        }
+
+    @classmethod
+    def from_dict(cls, d):
+        s = cls()
+        s.head = Point.from_dict(d['head'])
+        s.tail = [Point.from_dict(t) for t in d['tail']]
+        s.tail_size = d['tail_size']
+        s.direction = Point.from_dict(d['direction'])
+        return s
+
     def update(self):
         new_head = self.head.copy(self.direction.x, self.direction.y)
 
@@ -224,7 +264,10 @@ class Snake:
         self.head = new_head
 
     def shed(self):
-        self.tail = self.tail[-self.tail_size:]
+        if self.tail_size > 0:
+            self.tail = self.tail[-self.tail_size:]
+        else:
+            self.tail = []
 
     def __repr__(self):
         return f"""Head: {self.head}

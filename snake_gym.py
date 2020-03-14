@@ -1,11 +1,13 @@
 import gym
 from gym.envs.classic_control import rendering
+import os
 import numpy as np
 from gym.utils import play
 from gym import spaces
 from gym import error, spaces, utils
 from gym.utils import seeding
 from snake import Env, SnakeState
+import random
 import time
 import cv2
 
@@ -16,15 +18,16 @@ KEYWORD_TO_KEY = {
 }
 
 action_map = {
-    0: None,
-    1: 'left',
-    2: 'right'
+    0: 'up',
+    1: 'down',
+    2: 'left',
+    3: 'right'
 }
 
 reward_map = {
     SnakeState.OK: -0.001,
     SnakeState.ATE: 1,
-    SnakeState.DED: -1,
+    SnakeState.DED: 0,
     SnakeState.WON: 1
 }
 
@@ -48,6 +51,9 @@ class SnakeEnv(gym.Env):
         self.observation_space = spaces.Box(
             low=0, high=255, shape=(self.env.gs, self.env.gs, 3),
             dtype=np.uint8)
+        self.idx = 0
+        self.total_score = 0
+        self.vis = False
 
     def step(self, action):
         enum = self.env.update(self.action_map[action])
@@ -66,6 +72,9 @@ class SnakeEnv(gym.Env):
         return self.env.fruit_loc[0].dist(self.env.snake.head)
 
     def reset(self):
+        self.vis = os.path.exists('/tmp/vis')
+        self.idx = 0
+        self.total_score = 0
         self.env.reset()
         self.last_dist = self.dist
         return np.expand_dims(self.env.to_image().astype('float32'), -1)
@@ -77,6 +86,8 @@ class SnakeEnv(gym.Env):
                 self.viewer = rendering.SimpleImageViewer(maxwidth=640)
                 self.viewer.height = 640
                 self.viewer.width = 640
+
+            im = self.env.to_image(True)
 
             im = cv2.resize(im, (640, 640), interpolation=0)
             im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
@@ -92,7 +103,7 @@ class SnakeEnv(gym.Env):
             self.viewer.imshow(cv2.resize(self.env.to_image(), (640, 640), interpolation=0))
             return self.viewer.isopen
         else:
-            return cv2.cvtColor(cv2.resize(im, (640, 640), interpolation=0), cv2.COLOR_GRAY2BGR)
+            return np.expand_dims(cv2.resize(im[:,:,0], (84, 84), interpolation=0), -1)
 
 try:
     gym.envs.register(id="snakenv-v0", entry_point='snake_gym:SnakeEnv')

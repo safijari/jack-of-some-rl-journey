@@ -9,12 +9,36 @@ from keras.models import Sequential
 from keras.layers import Dense, Activation, Flatten, Convolution2D, Permute, MaxPooling2D
 from keras.optimizers import Adam
 
-from rl.policy import LinearAnnealedPolicy, BoltzmannQPolicy, EpsGreedyQPolicy
+from rl.policy import LinearAnnealedPolicy, BoltzmannQPolicy, EpsGreedyQPolicy, BoltzmannGumbelQPolicy, GreedyQPolicy
 from rl.memory import SequentialMemory
 from rl.core import Processor
 from rl.callbacks import FileLogger, ModelIntervalCheckpoint
 from snake_gym import SnakeEnv
 from rl.callbacks import WandbLogger
+# def make_model(shape, num_actions):
+#     model = Sequential()
+#     model.add(Permute((2, 3, 1), input_shape=shape))
+#     model.add(Convolution2D(32, (3, 3), padding='same'))
+#     model.add(Activation('relu'))
+#     model.add(Convolution2D(64, (3, 3), padding='same'))
+#     model.add(Activation('relu'))
+#     model.add(Convolution2D(128, (3, 3), padding='same'))
+#     model.add(MaxPooling2D())
+#     model.add(Activation('relu'))
+#     model.add(Convolution2D(256, (3, 3), padding='same'))
+#     model.add(Activation('relu'))
+#     model.add(Convolution2D(256, (3, 3), padding='same'))
+#     model.add(MaxPooling2D())
+#     model.add(Activation('relu'))
+#     model.add(Flatten())
+#     model.add(Dense(512))
+#     model.add(Activation('relu'))
+#     model.add(Dense(256))
+#     model.add(Activation('relu'))
+#     model.add(Dense(num_actions))
+#     model.add(Activation('linear'))
+#     print(model.summary())
+#     return model
 
 def make_ridiculous_model(shape, num_actions):
     model = Sequential()
@@ -110,9 +134,6 @@ def main(main_grid_shape=40, shape=4, winsize=2, test=False, num_max_test=200):
 
     processor = SnakeProcessor()
 
-    # policy = LinearAnnealedPolicy(
-    #     EpsGreedyQPolicy(), attr='eps', value_max=1., value_min=.1,
-    #     value_test=0, nb_steps=500000)
     policy = BoltzmannQPolicy(tau=0.25)
 
     interval = 10000
@@ -129,12 +150,11 @@ def main(main_grid_shape=40, shape=4, winsize=2, test=False, num_max_test=200):
                    train_interval=500,
                    delta_clip=1.)
 
-    dqn.compile(Adam(lr=.0001), metrics=['mae'])
+    dqn.compile(Adam(), metrics=['mae'])
     weights_filename = 'dqn_snake_weights.h5f'
 
     if not test:
         if os.path.exists('starting_weights.h5'):
-            print('loading')
             model.load_weights('starting_weights.h5')
         # Okay, now it's time to learn something! We capture the interrupt exception so that training
         # can be prematurely aborted. Notice that now you can use the built-in Keras callbacks!
@@ -144,18 +164,22 @@ def main(main_grid_shape=40, shape=4, winsize=2, test=False, num_max_test=200):
         callbacks = [ModelIntervalCheckpoint(checkpoint_weights_filename, interval=interval)]
         callbacks += [ModelIntervalCheckpoint(weights_filename, interval=interval)]
         callbacks += [FileLogger(log_filename, interval=500)]
-        dqn.fit(env, callbacks=callbacks, nb_steps=5000000, log_interval=10000, visualize=False)
+        callbacks += [WandbLogger(project="snake-rl")]
+        dqn.fit(env, callbacks=callbacks, nb_steps=10000000, log_interval=10000, visualize=visualize_training, nb_max_start_steps=start_steps)
 
         # After training is done, we save the final weights one more time.
         # dqn.save_weights(weights_filename, overwrite=True)
 
         # Finally, evaluate our algorithm for 10 episodes.
-        dqn.test(env, nb_episodes=10, visualize=True, nb_max_episode_steps=100)
+        # dqn.test(env, nb_episodes=10, visualize=True, nb_max_episode_steps=100)
     else:
         while True:
-            dqn.load_weights(weights_filename)
-            dqn.test(env, nb_episodes=3, visualize=True, nb_max_episode_steps=num_max_test)
-            time.sleep(5)
+            try:
+                dqn.load_weights(weights_filename)
+            except Exception:
+                print("weights not found, waiting")
+            dqn.test(env, nb_episodes=10, visualize=visualize_training, nb_max_episode_steps=num_max_test)
+            time.sleep(3)
 
 if __name__ == '__main__':
     argh.dispatch_command(main)
