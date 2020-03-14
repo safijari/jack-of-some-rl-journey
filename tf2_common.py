@@ -14,11 +14,11 @@ def make_main_model(input_shape, num_actions):
         ]
 
     policy_head = tf.keras.Sequential([
-        tf.keras.layers.Dense(128, activation='relu', kernel_initializer='random_uniform', bias_initializer='zeros'),
+        tf.keras.layers.Dense(512, activation='relu', kernel_initializer='random_uniform', bias_initializer='zeros'),
         tf.keras.layers.Dense(num_actions)
     ])
     value_head = tf.keras.Sequential([
-        tf.keras.layers.Dense(128, activation='relu', kernel_initializer='random_uniform', bias_initializer='zeros'),
+        tf.keras.layers.Dense(512, activation='relu', kernel_initializer='random_uniform', bias_initializer='zeros'),
         tf.keras.layers.Dense(1)
     ])
 
