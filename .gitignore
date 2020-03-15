@@ -124,13 +124,19 @@ venv.bak/
 /site
 
 # mypy
-.mypy_cache/
 .dmypy.json
+.mypy_cache/
 dmypy.json
 
 # Pyre type checker
 .pyre/
 models/
 logs/
+wandb/
+*.pth
+*_log.json
+runs/
+*.h5*
+*.h5
 runs/
 *.pth

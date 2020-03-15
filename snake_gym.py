@@ -1,4 +1,5 @@
 import gym
+from gym.envs.classic_control import rendering
 import os
 import numpy as np
 from gym.utils import play
@@ -12,10 +13,8 @@ import cv2
 
 
 KEYWORD_TO_KEY = {
-    (ord('i'), ): 1,
-    (ord('k'), ): 2,
-    (ord('j'), ): 3,
-    (ord('l'), ): 4,
+    (ord('j'), ): 1,
+    (ord('l'), ): 2,
 }
 
 action_map = {
@@ -25,9 +24,8 @@ action_map = {
     3: 'right'
 }
 
-
 reward_map = {
-    SnakeState.OK: 0,
+    SnakeState.OK: -0.001,
     SnakeState.ATE: 1,
     SnakeState.DED: 0,
     SnakeState.WON: 1
@@ -36,14 +34,20 @@ reward_map = {
 
 class SnakeEnv(gym.Env):
     metadata = {'render.modes': ['human', 'rgb_array']}
-    def __init__(self, gs=10, human_mode_sleep=0.05, seed=None, use_running_log=False):
+    def __init__(self, gs=10, main_gs=10, num_fruits=10, action_map=None):
         super(SnakeEnv, self).__init__()
-        self.env = Env(gs, seed=seed)
-        self.human_mode_sleep = human_mode_sleep
-        self.running_log = []
-        self.use_running_log = use_running_log
+        self.env = Env(gs, main_gs=main_gs, num_fruits=num_fruits)
         self.viewer = None
-        self.action_space = spaces.Discrete(4)
+        self.action_map = {
+            0: 'up',
+            1: 'down',
+            2: 'left',
+            3: 'right'
+        }
+        if action_map is not None:
+            self.action_map = action_map
+
+        self.action_space = spaces.Discrete(len(self.action_map.keys()))
         self.observation_space = spaces.Box(
             low=0, high=255, shape=(self.env.gs, self.env.gs, 3),
             dtype=np.uint8)
@@ -52,36 +56,32 @@ class SnakeEnv(gym.Env):
         self.vis = False
 
     def step(self, action):
-        # self.running_log.append(self.env.to_dict())
-        self.idx += 1
-        enum = self.env.update(action_map[action])
-        done = (enum in [SnakeState.DED, SnakeState.WON])
+        enum = self.env.update(self.action_map[action])
+
         rew = reward_map[enum]
-        self.total_score += rew
-        if self.vis:
-            self.render()
-        # if done:
-        #     print(self.idx, self.total_score)
-        return self.render('other'), rew, done, {}
+
+        is_done = (enum in [SnakeState.DED, SnakeState.WON])
+        info_dict = {}
+        if is_done:
+            info_dict['score'] = len(self.env.snake.tail) - 2
+
+        return np.expand_dims(self.env.to_image().astype('float32'), -1), rew, is_done, info_dict
+
+    @property
+    def dist(self):
+        return self.env.fruit_loc[0].dist(self.env.snake.head)
 
     def reset(self):
         self.vis = os.path.exists('/tmp/vis')
         self.idx = 0
         self.total_score = 0
         self.env.reset()
-        if self.running_log and self.use_running_log and random.random() > 0.75:
-            idx = random.randint(0, len(self.running_log) - 1)
-            # print(f"keeping {idx + 1} out of {len(self.running_log)} past transitions")
-            self.env.from_dict(self.running_log[idx])
-            self.running_log = self.running_log[:idx]
-        else:
-            self.running_log = []
-        return self.render('other')
+        self.last_dist = self.dist
+        return np.expand_dims(self.env.to_image().astype('float32'), -1)
 
     def render(self, mode='human', close=False):
         im = self.env.to_image()
         if mode == 'human':
-            from gym.envs.classic_control import rendering
             if self.viewer is None:
                 self.viewer = rendering.SimpleImageViewer(maxwidth=640)
                 self.viewer.height = 640
@@ -93,10 +93,8 @@ class SnakeEnv(gym.Env):
             im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
 
             self.viewer.imshow(im)
-            time.sleep(self.human_mode_sleep)
             return self.viewer.isopen
         elif mode == 'jack':
-            from gym.envs.classic_control import rendering
             if self.viewer is None:
                 self.viewer = rendering.SimpleImageViewer(maxwidth=640)
                 self.viewer.height = 640
@@ -113,14 +111,24 @@ except Exception:
     print('already done?')
 
 if __name__ == '__main__':
-    def callback(obs_t, obs_tp1, action, rew, done, info):
-        try:
-            callback.rew += rew
-        except Exception:
-            callback.rew = rew
-        print(callback.rew)
+    action_map = {
+        0: None,
+        1: 'up',
+        2: 'down',
+        3: 'left',
+        4: 'right'
+    }
 
-    env = gym.make('snakenv-v0')
-    # env = SnakeEnv()
+    KEYWORD_TO_KEY = {
+        (ord('i'), ): 1,
+        (ord('j'), ): 3,
+        (ord('k'), ): 2,
+        (ord('l'), ): 4,
+    }
+
+    def callback(obs_t, obs_tp1, action, rew, done, info):
+        print(rew)
+
+    env = gym.make('snakenv-v0', gs=20, main_gs=40, action_map=action_map, num_fruits=1)
     play.keys_to_action = KEYWORD_TO_KEY
-    play.play(env, fps=5, keys_to_action=KEYWORD_TO_KEY, callback=callback)
+    play.play(env, fps=15, keys_to_action=KEYWORD_TO_KEY, callback=callback)
