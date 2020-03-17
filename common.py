@@ -1,72 +1,59 @@
-import sys
-import time
 import numpy as np
+from dataclasses import dataclass
 
-import torch
-import torch.nn as nn
+def permute_axes_and_prep_image(im, pytorch=False):
+    assert len(im.shape) < 4
+    if len(im.shape) == 2:
+        channel_axis = 0 if pytorch else -1
+        return np.expand_dims(im, channel_axis)
+    else:
+        if not pytorch:
+            return im
+        else:
+            return np.transpose(im, (2, 0, 1))
+
+class EnvManager:
+    def __init__(self, env_factory, num_envs, pytorch=False, num_viz_train=0, viz_test=False, test_delay=0.01):
+        self.envs = [env_factory() for _ in range(num_envs)]
+        self.test_env = env_factory()
+        self._p = lambda im: permute_axes_and_prep_image(im, pytorch)
+        self.state = np.stack([self._p(env.reset()) for env in self.envs])
+        self.num_viz_train = num_viz_train
+
+    def viz(self):
+        for env in self.envs[:self.num_viz_train]:
+            env.render()
+
+    def apply_actions(self, actions):
+        next_state, rewards, dones_list, info_dicts = zip(*[env.step(a) for env, a in zip(self.envs, actions)])
+        next_state = np.stack([self._p(s) for s in next_state])
+        rewards = np.expand_dims(np.stack(rewards), -1)
+        dones = np.expand_dims(np.stack(dones_list), -1)
+
+        out_state = self.state
+        self.state = next_state
+        for i, env in enumerate(self.envs):
+            if dones_list[i]:
+                self.state[i] = self._p(env.reset())
+
+        return out_state, rewards, dones, info_dicts
 
 
-class RewardTracker:
-    def __init__(self, writer, stop_reward):
-        self.writer = writer
-        self.stop_reward = stop_reward
-
-    def __enter__(self):
-        self.ts = time.time()
-        self.ts_frame = 0
-        self.total_rewards = []
-        return self
-
-    def __exit__(self, *args):
-        self.writer.close()
-
-    def reward(self, reward, frame, epsilon=None):
-        self.total_rewards.append(reward)
-        speed = (frame - self.ts_frame) / (time.time() - self.ts)
-        self.ts_frame = frame
-        self.ts = time.time()
-        mean_reward = np.mean(self.total_rewards[-100:])
-        epsilon_str = "" if epsilon is None else ", eps %.2f" % epsilon
-        print("%d: done %d games, mean reward %.3f, speed %.2f f/s%s" % (
-            frame, len(self.total_rewards), mean_reward, speed, epsilon_str
-        ))
-        sys.stdout.flush()
-        if epsilon is not None:
-            self.writer.add_scalar("epsilon", epsilon, frame)
-        self.writer.add_scalar("speed", speed, frame)
-        self.writer.add_scalar("reward_100", mean_reward, frame)
-        self.writer.add_scalar("reward", reward, frame)
-        if mean_reward > self.stop_reward:
-            print("Solved in %d frames!" % frame)
-            return True
-        return False
+def compute_gae(next_value, rewards, dones, values, gamma=0.99, lmbda=0.95):
+    masks = [1 - d for d in dones]
+    values = values + [next_value]
+    gae = 0
+    returns = []
+    for step in reversed(range(len(rewards))):
+        delta = rewards[step] + gamma * values[step + 1].detach().numpy() * masks[step] - values[step].detach().numpy()
+        gae = delta + gamma * lmbda * masks[step] * gae
+        returns.append(gae + values[step].detach().numpy())
+    return list(reversed(returns))
 
 
-class AtariPGN(nn.Module):
-    def __init__(self, input_shape, n_actions):
-        super(AtariPGN, self).__init__()
-
-        self.conv = nn.Sequential(
-            nn.Conv2d(input_shape[0], 32, kernel_size=1, stride=1),
-            nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=1, stride=1),
-            nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=3, stride=1),
-            nn.ReLU()
-        )
-
-        conv_out_size = self._get_conv_out(input_shape)
-        self.fc = nn.Sequential(
-            nn.Linear(conv_out_size, 512),
-            nn.ReLU(),
-            nn.Linear(512, n_actions)
-        )
-
-    def _get_conv_out(self, shape):
-        o = self.conv(torch.zeros(1, *shape))
-        return int(np.prod(o.size()))
-
-    def forward(self, x):
-        fx = x.float() / 256
-        conv_out = self.conv(fx).view(fx.size()[0], -1)
-        return self.fc(conv_out)
+if __name__ == '__main__':
+    import gym
+    from snake_gym import *
+    env_fac = lambda: gym.make('snakenv-v0', gs=10, main_gs=12, num_fruits=1)
+    m = EnvManager(env_fac, 4, True, 2)
+    import ipdb; ipdb.set_trace()

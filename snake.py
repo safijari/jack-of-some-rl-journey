@@ -86,7 +86,6 @@ class Env:
         self.main_gs = main_gs
         self.num_fruits = num_fruits
         self.reset()
-        self.seed = seed
 
         self.update()
 
@@ -95,6 +94,7 @@ class Env:
         self.last_ate = 0
         grid_size = self.gs
         # self.subgrid_loc = Point(randint(0, self.main_gs - self.gs), randint(0, self.main_gs - self.gs))
+        self.subgrid_loc = Point(0, 0)
         if grid_size in [10, 20, 38]:
             self.subgrid_loc = Point(1, 1)
         self.snake = Snake()
@@ -230,7 +230,7 @@ class Snake:
     def __init__(self, x: int = 0, y: int = 0):
         self.head = Point(x, y)
         self.tail = []
-        self.tail_size = 0
+        self.tail_size = 1
         self.direction = Point(1, 0)  # Need to add validation later
         self.dir_idx = 0
 
