@@ -39,7 +39,7 @@ class EnvManager:
         return out_state, rewards, dones, info_dicts
 
 
-def compute_gae(next_value, rewards, dones, values, gamma=0.99, lmbda=0.95):
+def compute_gae(next_value, rewards, dones, values, gamma=0.99, lmbda=0.98):
     masks = [1 - d for d in dones]
     values = values + [next_value]
     gae = 0

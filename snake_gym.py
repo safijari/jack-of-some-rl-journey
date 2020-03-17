@@ -25,16 +25,16 @@ action_map = {
 }
 
 reward_map = {
-    SnakeState.OK: -0.001,
+    SnakeState.OK: 0,
     SnakeState.ATE: 1,
-    SnakeState.DED: 0,
+    SnakeState.DED: -1,
     SnakeState.WON: 1
 }
 
 
 class SnakeEnv(gym.Env):
     metadata = {'render.modes': ['human', 'rgb_array']}
-    def __init__(self, gs=10, main_gs=10, num_fruits=10, action_map=None):
+    def __init__(self, gs=10, main_gs=10, num_fruits=1, action_map=None):
         super(SnakeEnv, self).__init__()
         self.env = Env(gs, main_gs=main_gs, num_fruits=num_fruits)
         self.viewer = None
@@ -63,7 +63,7 @@ class SnakeEnv(gym.Env):
         is_done = (enum in [SnakeState.DED, SnakeState.WON])
         info_dict = {}
         if is_done:
-            info_dict['score'] = len(self.env.snake.tail) - 2
+            info_dict['score'] = len(self.env.snake.tail) - 1
 
         return np.expand_dims(self.env.to_image().astype('float32'), -1), rew, is_done, info_dict
 
