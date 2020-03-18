@@ -6,7 +6,7 @@ from gym.utils import play
 from gym import spaces
 from gym import error, spaces, utils
 from gym.utils import seeding
-from snake import Env, SnakeState
+from snake import Env, SnakeState, INIT_TAIL_SIZE
 import random
 import time
 import cv2
@@ -25,7 +25,7 @@ action_map = {
 }
 
 reward_map = {
-    SnakeState.OK: 0,
+    SnakeState.OK: -0.001,
     SnakeState.ATE: 1,
     SnakeState.DED: -1,
     SnakeState.WON: 1
@@ -63,7 +63,7 @@ class SnakeEnv(gym.Env):
         is_done = (enum in [SnakeState.DED, SnakeState.WON])
         info_dict = {}
         if is_done:
-            info_dict['score'] = len(self.env.snake.tail) - 1
+            info_dict['score'] = len(self.env.snake.tail) - INIT_TAIL_SIZE
 
         return np.expand_dims(self.env.to_image().astype('float32'), -1), rew, is_done, info_dict
 

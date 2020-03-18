@@ -226,11 +226,12 @@ class Env:
 
         return full_canvas
 
+INIT_TAIL_SIZE = 4
 class Snake:
     def __init__(self, x: int = 0, y: int = 0):
         self.head = Point(x, y)
         self.tail = []
-        self.tail_size = 1
+        self.tail_size = INIT_TAIL_SIZE
         self.direction = Point(1, 0)  # Need to add validation later
         self.dir_idx = 0
 

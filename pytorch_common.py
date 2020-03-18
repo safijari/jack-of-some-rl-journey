@@ -1,4 +1,5 @@
 import os
+from tqdm import tqdm
 import torch
 import numpy as np
 import torch.nn as nn
@@ -15,17 +16,23 @@ def init(module, weight_init, bias_init, gain=1):
     return module
 
 
-def ppo_iter(mini_batch_size, states, actions, log_probs, returns, advantage):
+def ppo_iter(mini_batch_size, states, actions, log_probs, returns, advantage, device):
     batch_size = states.size(0)
     for _ in range(batch_size // mini_batch_size):
         rand_ids = np.random.randint(0, batch_size, mini_batch_size)
-        yield states[rand_ids, :], actions[rand_ids, :], log_probs[
+        yield states[rand_ids, :].to(device), actions[rand_ids, :].to(
+            device
+        ), log_probs[rand_ids, :].to(device), returns[rand_ids, :].to(
+            device
+        ), advantage[
             rand_ids, :
-        ], returns[rand_ids, :], advantage[rand_ids, :]
+        ].to(
+            device
+        )
 
 
 class SnakeModel(nn.Module):
-    def __init__(self, input_shape, num_actions, num_hidden=512):
+    def __init__(self, input_shape, num_actions, num_hidden=512, device="cuda"):
         super(SnakeModel, self).__init__()
         init_ = lambda m: init(
             m,
@@ -38,6 +45,8 @@ class SnakeModel(nn.Module):
             init_(nn.Conv2d(1, 32, kernel_size=8, stride=4)),
             nn.ReLU(),
             init_(nn.Conv2d(32, 64, kernel_size=4, stride=2)),
+            nn.ReLU(),
+            init_(nn.Conv2d(64, 64, kernel_size=4, stride=2)),
             nn.ReLU(),
             init_(nn.Conv2d(64, 64, kernel_size=3, stride=1)),
             nn.ReLU(),
@@ -64,6 +73,7 @@ class SnakeModel(nn.Module):
         )
 
         self.optimizer = optim.Adam(self.parameters(), lr=0.001)
+        self.device = device
 
     def forward(self, x):
         latent_ = self.convs(x / 255)
@@ -92,9 +102,15 @@ class SnakeModel(nn.Module):
         fcritic_loss = 0
         fentropy_loss = 0
         final_loss_steps = 0
-        for _ in range(ppo_epochs):
+        for _ in tqdm(range(ppo_epochs)):
             for state, action, old_log_probs, return_, advantage in ppo_iter(
-                mini_batch_size, states, actions, log_probs, returns, advantages
+                mini_batch_size,
+                states,
+                actions,
+                log_probs,
+                returns,
+                advantages,
+                self.device,
             ):
                 dist, value = model(state)
                 entropy = dist.entropy().mean()
@@ -108,7 +124,6 @@ class SnakeModel(nn.Module):
 
                 actor_loss = -torch.min(surr1, surr2).mean()
                 critic_loss = (return_ - value).pow(2).mean()
-
 
                 optimizer.zero_grad()
                 loss = 0.5 * critic_loss + actor_loss - 0.01 * entropy
@@ -134,12 +149,12 @@ def _t(l):
 
 def main(device="cuda"):
     wandb.init(project="snake-pytorch-ppo")
-    env_fac = lambda: gym.make("snakenv-v0", gs=10, main_gs=12, num_fruits=1)
-    num_envs = 32
-    num_steps = 32
-    m = EnvManager(env_fac, num_envs, pytorch=True, num_viz_train=2)
+    env_fac = lambda: gym.make("snakenv-v0", gs=20, main_gs=22, num_fruits=1)
+    num_envs = 2048
+    num_steps = 8
+    m = EnvManager(env_fac, num_envs, pytorch=True, num_viz_train=1)
     s = m.state.shape[-1]
-    model = SnakeModel((1, s, s), 4).to(device)
+    model = SnakeModel((1, s, s), 4, device=device).to(device)
 
     idx = 0
 
@@ -167,7 +182,6 @@ def main(device="cuda"):
                 actions.append(acts)
 
                 if any(d):
-                    # import ipdb; ipdb.set_trace()
                     scores = [idict["score"] for idict in idicts if "score" in idict]
                     wandb.log({"episode_score": max(scores)}, step=idx)
 
@@ -177,22 +191,24 @@ def main(device="cuda"):
                 dones,
                 [v.cpu() for v in values],
             )
-            gae = _t(gae_).to(device)
-            values = torch.cat(values).to(device)
-            log_probs = torch.cat(log_probs).unsqueeze(-1).to(device)
-            advantage = (gae.to(device) - values).to(device)
-            actions = torch.cat(actions).unsqueeze(-1).to(device)
-            states = _t(states).to(device)
+            gae = _t(gae_)
+            values = torch.cat(values)
+            log_probs = torch.cat(log_probs).unsqueeze(-1)
+            advantage = gae.to(device) - values
+            actions = torch.cat(actions).unsqueeze(-1)
+            states = _t(states)
 
         if os.path.exists("/tmp/debug_jari"):
             try:
                 os.remove("/tmp/debug_jari")
             except Exception:
                 pass
-            import ipdb; ipdb.set_trace()
+            import ipdb
+
+            ipdb.set_trace()
 
         loss, actor_loss, critic_loss, entropy_loss = model.ppo_update(
-            10, num_envs * num_steps, states, actions, log_probs, gae, advantage
+            10, 2048*2, states, actions, log_probs, gae, advantage
         )
         wandb.log(
             {

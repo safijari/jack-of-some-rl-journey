@@ -19,6 +19,7 @@ class EnvManager:
         self._p = lambda im: permute_axes_and_prep_image(im, pytorch)
         self.state = np.stack([self._p(env.reset()) for env in self.envs])
         self.num_viz_train = num_viz_train
+        self.viz()
 
     def viz(self):
         for env in self.envs[:self.num_viz_train]:
@@ -36,10 +37,12 @@ class EnvManager:
             if dones_list[i]:
                 self.state[i] = self._p(env.reset())
 
+        self.viz()
+
         return out_state, rewards, dones, info_dicts
 
 
-def compute_gae(next_value, rewards, dones, values, gamma=0.99, lmbda=0.98):
+def compute_gae(next_value, rewards, dones, values, gamma=0.998, lmbda=0.99):
     masks = [1 - d for d in dones]
     values = values + [next_value]
     gae = 0
