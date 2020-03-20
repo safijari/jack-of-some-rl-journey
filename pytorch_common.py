@@ -31,7 +31,7 @@ def ppo_iter(mini_batch_size, states, actions, log_probs, returns, advantage, de
 
 
 class SnakeModel(nn.Module):
-    def __init__(self, input_shape, num_actions, num_hidden=512, device="cuda", smaller=False):
+    def __init__(self, input_shape, num_actions, num_hidden=512, device="cuda", smaller=False, recurrent=False):
         super(SnakeModel, self).__init__()
         init_ = lambda m: init(
             m,
@@ -69,6 +69,15 @@ class SnakeModel(nn.Module):
 
         num_fc = x.view(1, -1).shape[1]
 
+        if recurrent:
+            self._recurrent = True
+            self.gru = nn.GRU(num_fc, 512)
+            for name, param in self.gru.named_parameters():
+                if 'bias' in name:
+                    nn.init.constant_(param, 0)
+                elif 'weight' in name:
+                    nn.init.orthogonal_(param)
+
         init_ = lambda m: init(
             m, nn.init.orthogonal_, lambda x: nn.init.constant_(x, 0)
         )
@@ -88,14 +97,17 @@ class SnakeModel(nn.Module):
         self.optimizer = optim.Adam(self.parameters(), lr=0.001)
         self.device = device
 
-    def forward(self, x):
+    def forward(self, x, rnn_hxs, masks):
         latent_ = self.convs(x / 255)
         latent = latent_.view(x.shape[0], -1)
+
+        if self._recurrent:
+            x, rnn_hxs = self.gru(x, hxs*masks)
 
         policy = self.policy(latent)
         value = self.value(latent)
 
-        return torch.distributions.categorical.Categorical(logits=policy), value
+        return torch.distributions.categorical.Categorical(logits=policy), value, rnn_hxs
 
     def ppo_update(
         self,
@@ -163,11 +175,12 @@ def _t(l):
 
 
 def main(device="cuda"):
+    recurrent = False
     wandb.init(project="snake-pytorch-ppo")
     env_fac = lambda: gym.make("snakenv-v0", gs=20, main_gs=22, num_fruits=1)
     num_envs = 1024
     num_steps = 2
-    m = EnvManager(env_fac, num_envs, pytorch=True, num_viz_train=0)
+    m = EnvManager(env_fac, num_envs, recurrent=False, pytorch=True, num_viz_train=0)
     s = m.state.shape[-1]
     model = SnakeModel((1, s, s), 4, device=device).to(device)
 
@@ -175,6 +188,7 @@ def main(device="cuda"):
 
     while True:
         states = []
+        recurrent_states = []
         values = []
         rewards = []
         dones = []
