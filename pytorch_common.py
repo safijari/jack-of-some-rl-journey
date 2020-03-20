@@ -18,21 +18,20 @@ def init(module, weight_init, bias_init, gain=1):
 
 def ppo_iter(mini_batch_size, states, actions, log_probs, returns, advantage, device):
     batch_size = states.size(0)
-    for _ in range(batch_size // mini_batch_size):
-        rand_ids = np.random.randint(0, batch_size, mini_batch_size)
-        yield states[rand_ids, :].to(device), actions[rand_ids, :].to(
+    for i in range(batch_size // mini_batch_size):
+        yield states[i*mini_batch_size:(i+1)*mini_batch_size, :].to(device), actions[i*mini_batch_size:(i+1)*mini_batch_size, :].to(
             device
-        ), log_probs[rand_ids, :].to(device), returns[rand_ids, :].to(
+        ), log_probs[i*mini_batch_size:(i+1)*mini_batch_size, :].to(device), returns[i*mini_batch_size:(i+1)*mini_batch_size, :].to(
             device
         ), advantage[
-            rand_ids, :
+            i*mini_batch_size:(i+1)*mini_batch_size, :
         ].to(
             device
         )
 
 
 class SnakeModel(nn.Module):
-    def __init__(self, input_shape, num_actions, num_hidden=512, device="cuda"):
+    def __init__(self, input_shape, num_actions, num_hidden=512, device="cuda", smaller=False):
         super(SnakeModel, self).__init__()
         init_ = lambda m: init(
             m,
@@ -41,16 +40,28 @@ class SnakeModel(nn.Module):
             nn.init.calculate_gain("relu"),
         )
 
-        self.convs = nn.Sequential(
-            init_(nn.Conv2d(1, 32, kernel_size=8, stride=4)),
-            nn.ReLU(),
-            init_(nn.Conv2d(32, 64, kernel_size=4, stride=2)),
-            nn.ReLU(),
-            init_(nn.Conv2d(64, 64, kernel_size=4, stride=2)),
-            nn.ReLU(),
-            init_(nn.Conv2d(64, 64, kernel_size=3, stride=1)),
-            nn.ReLU(),
-        )
+        if not smaller:
+            self.convs = nn.Sequential(
+                init_(nn.Conv2d(1, 64, kernel_size=8, stride=4)),
+                nn.ReLU(),
+                init_(nn.Conv2d(64, 128, kernel_size=4, stride=2)),
+                nn.ReLU(),
+                init_(nn.Conv2d(128, 128, kernel_size=4, stride=2)),
+                nn.ReLU(),
+                init_(nn.Conv2d(128, 256, kernel_size=3, stride=1)),
+                nn.ReLU(),
+            )
+        else:
+            self.convs = nn.Sequential(
+                init_(nn.Conv2d(1, 32, kernel_size=8, stride=4)),
+                nn.ReLU(),
+                init_(nn.Conv2d(64, 64, kernel_size=4, stride=2)),
+                nn.ReLU(),
+                init_(nn.Conv2d(64, 64, kernel_size=4, stride=2)),
+                nn.ReLU(),
+                init_(nn.Conv2d(64, 64, kernel_size=3, stride=1)),
+                nn.ReLU(),
+            )
 
         with torch.no_grad():
             x = torch.rand(input_shape).unsqueeze(0)
@@ -69,7 +80,9 @@ class SnakeModel(nn.Module):
         )
 
         self.value = nn.Sequential(
-            nn.Linear(num_fc, num_hidden), nn.ReLU(), nn.Linear(num_hidden, 1)
+            init_(nn.Linear(num_fc, num_hidden)),
+            nn.ReLU(),
+            init_(nn.Linear(num_hidden, 1))
         )
 
         self.optimizer = optim.Adam(self.parameters(), lr=0.001)
@@ -124,6 +137,8 @@ class SnakeModel(nn.Module):
 
                 actor_loss = -torch.min(surr1, surr2).mean()
                 critic_loss = (return_ - value).pow(2).mean()
+                if critic_loss > 10:
+                    import ipdb; ipdb.set_trace()
 
                 optimizer.zero_grad()
                 loss = 0.5 * critic_loss + actor_loss - 0.01 * entropy
@@ -150,9 +165,9 @@ def _t(l):
 def main(device="cuda"):
     wandb.init(project="snake-pytorch-ppo")
     env_fac = lambda: gym.make("snakenv-v0", gs=20, main_gs=22, num_fruits=1)
-    num_envs = 2048
-    num_steps = 8
-    m = EnvManager(env_fac, num_envs, pytorch=True, num_viz_train=1)
+    num_envs = 1024
+    num_steps = 2
+    m = EnvManager(env_fac, num_envs, pytorch=True, num_viz_train=0)
     s = m.state.shape[-1]
     model = SnakeModel((1, s, s), 4, device=device).to(device)
 
@@ -208,7 +223,7 @@ def main(device="cuda"):
             ipdb.set_trace()
 
         loss, actor_loss, critic_loss, entropy_loss = model.ppo_update(
-            10, 2048*2, states, actions, log_probs, gae, advantage
+            5, min(num_envs*num_steps, 2048), states, actions, log_probs, gae, advantage
         )
         wandb.log(
             {
