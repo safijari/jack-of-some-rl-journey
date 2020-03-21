@@ -96,7 +96,7 @@ class SnakeModel(nn.Module):
             init_(nn.Linear(num_hidden, 1))
         )
 
-        self.optimizer = optim.Adam(self.parameters(), lr=0.0001)
+        self.optimizer = optim.Adam(self.parameters(), lr=0.001)
         self.device = device
 
     def forward(self, x, hxs):  # hxs is size [Nbatch, 512], must be 0 at start of episode
@@ -184,7 +184,7 @@ def main(device="cuda"):
     recurrent_size = 1024 if recurrent else 0
     wandb.init(project="snake-pytorch-ppo")
     env_fac = lambda: gym.make("snakenv-v0", gs=20, main_gs=22, num_fruits=1)
-    num_envs = 1024
+    num_envs = 128*4
     num_steps = 2
     m = EnvManager(env_fac, num_envs, pytorch=True, num_viz_train=0)
     s = m.state.shape[-1]
@@ -210,7 +210,15 @@ def main(device="cuda"):
                     r_states.append(recurrent_state.cpu())
                 dist, v, recurrent_state = model(torch.FloatTensor(m.state).to(device), recurrent_state.to(device))
                 idx += num_envs
-                acts = dist.sample()
+                acts_normal = dist.sample()
+                acts_exploit = dist.logits.max(1).indices
+                acts = []
+                for i in range(len(acts_exploit)):
+                    if i % 2 == 0:
+                        acts.append(acts_normal[i])
+                    else:
+                        acts.append(acts_exploit[i])
+                acts = torch.FloatTensor(acts).to(device)
                 ost, r, d, idicts = m.apply_actions(acts.tolist())
                 states.append(ost)
                 rewards.append(r)
