@@ -96,7 +96,7 @@ class SnakeModel(nn.Module):
             init_(nn.Linear(num_hidden, 1))
         )
 
-        self.optimizer = optim.Adam(self.parameters(), lr=0.001)
+        self.optimizer = optim.Adam(self.parameters(), lr=0.00005)
         self.device = device
 
     def forward(self, x, hxs):  # hxs is size [Nbatch, 512], must be 0 at start of episode
@@ -158,7 +158,7 @@ class SnakeModel(nn.Module):
                 critic_loss = (return_ - value).pow(2).mean()
 
                 optimizer.zero_grad()
-                loss = 0.5 * critic_loss + actor_loss - 0.01 * entropy
+                loss = 0.5 * critic_loss + actor_loss - 0.001 * entropy
                 loss.backward()
                 optimizer.step()
                 final_loss += loss.detach().item()
@@ -184,13 +184,15 @@ def main(device="cuda"):
     recurrent_size = 1024 if recurrent else 0
     wandb.init(project="snake-pytorch-ppo")
     env_fac = lambda: gym.make("snakenv-v0", gs=20, main_gs=22, num_fruits=1)
-    num_envs = 128*4
-    num_steps = 2
+    num_envs = 4
+    num_steps = 512
     m = EnvManager(env_fac, num_envs, pytorch=True, num_viz_train=0)
     s = m.state.shape[-1]
     model = SnakeModel((1, s, s), 4, device=device, recurrent=recurrent_size, smaller=True).to(device)
 
     idx = 0
+    batch_num = 0
+    episode_num = 0
 
     recurrent_state = torch.zeros((num_envs, recurrent_size))
 
@@ -203,6 +205,7 @@ def main(device="cuda"):
         actions = []
         info_dicts = []
         log_probs = []
+        scores = []
 
         with torch.no_grad():
             for i in range(num_steps):
@@ -211,14 +214,15 @@ def main(device="cuda"):
                 dist, v, recurrent_state = model(torch.FloatTensor(m.state).to(device), recurrent_state.to(device))
                 idx += num_envs
                 acts_normal = dist.sample()
-                acts_exploit = dist.logits.max(1).indices
-                acts = []
-                for i in range(len(acts_exploit)):
-                    if i % 2 == 0:
-                        acts.append(acts_normal[i])
-                    else:
-                        acts.append(acts_exploit[i])
-                acts = torch.FloatTensor(acts).to(device)
+                # acts_exploit = dist.logits.max(1).indices
+                # acts = []
+                # for i in range(len(acts_exploit)):
+                #     if i % 2 == 0:
+                #         acts.append(acts_normal[i])
+                #     else:
+                #         acts.append(acts_exploit[i])
+                # acts = torch.FloatTensor(acts).to(device)
+                acts = acts_normal
                 ost, r, d, idicts = m.apply_actions(acts.tolist())
                 states.append(ost)
                 rewards.append(r)
@@ -233,8 +237,9 @@ def main(device="cuda"):
                         recurrent_state[i] = 0
 
                 if any(d):
-                    scores = [idict["score"] for idict in idicts if "score" in idict]
-                    wandb.log({"episode_score": max(scores)}, step=idx)
+                    episode_num += 1
+                    scores.extend([idict["score"] for idict in idicts if "score" in idict])
+                    # wandb.log({"episode_score": max(scores)}, step=idx)
 
             gae_ = compute_gae(
                 model(torch.FloatTensor(m.state).to(device), recurrent_state.to(device))[1].cpu(),
@@ -259,16 +264,21 @@ def main(device="cuda"):
             import ipdb; ipdb.set_trace()
 
         loss, actor_loss, critic_loss, entropy_loss = model.ppo_update(
-            5, min(num_envs*num_steps, 2048), states, actions, log_probs, gae, advantage, r_states
+            2, min(num_envs*num_steps, 2048), states, actions, log_probs, gae, advantage, r_states
         )
+        batch_num += 1
+        score = 0 if not scores else max(scores)
         wandb.log(
             {
                 "loss": loss,
                 "actor_loss": actor_loss,
                 "critic_loss": critic_loss,
                 "entropy_loss": entropy_loss,
+                "score": score,
+                "steps": idx,
+                "episodes": episode_num
             },
-            step=idx,
+            step=batch_num,
         )
 
 

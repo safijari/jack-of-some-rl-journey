@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-from random import choice, randint, sample
+from random import choice, randint, sample, seed
 from dataclasses import dataclass
 from enum import Enum
 import math
