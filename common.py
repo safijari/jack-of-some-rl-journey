@@ -13,7 +13,7 @@ def permute_axes_and_prep_image(im, pytorch=False):
             return np.transpose(im, (2, 0, 1))
 
 class EnvManager:
-    def __init__(self, env_factory, num_envs, recurrent_size=0, pytorch=False, num_viz_train=0, viz_test=False, test_delay=0.01):
+    def __init__(self, env_factory, num_envs, pytorch=False, num_viz_train=0, viz_test=False, test_delay=0.01):
         self.envs = [env_factory() for _ in range(num_envs)]
         self.test_env = env_factory()
         self._p = lambda im: permute_axes_and_prep_image(im, pytorch)
