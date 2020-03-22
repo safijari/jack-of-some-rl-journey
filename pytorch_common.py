@@ -295,23 +295,23 @@ def main(device="cuda", env_name="snake", test=False, checkpoint_path=None):
                 if recurrent:
                     r_states = torch.cat(r_states)
 
-            loss, actor_loss, critic_loss, entropy_loss = model.ppo_update(
-                8, min(num_envs*num_steps, 1024), states, actions, log_probs, gae, advantage, r_states
-            )
-            batch_num += 1
-            score = 0 if not scores else max(scores)
-            wandb.log(
-                {
-                    "loss": loss,
-                    "actor_loss": actor_loss,
-                    "critic_loss": critic_loss,
-                    "entropy_loss": entropy_loss,
-                    "score": score,
-                    "steps": idx,
-                    "episodes": episode_num
-                },
-                step=batch_num,
-            )
+                loss, actor_loss, critic_loss, entropy_loss = model.ppo_update(
+                    8, min(num_envs*num_steps, 1024), states, actions, log_probs, gae, advantage, r_states
+                )
+                batch_num += 1
+                score = 0 if not scores else max(scores)
+                wandb.log(
+                    {
+                        "loss": loss,
+                        "actor_loss": actor_loss,
+                        "critic_loss": critic_loss,
+                        "entropy_loss": entropy_loss,
+                        "score": score,
+                        "steps": idx,
+                        "episodes": episode_num
+                    },
+                    step=batch_num,
+                )
 
         if os.path.exists("/tmp/debug_jari"):
             try:
