@@ -177,19 +177,35 @@ class VisualAgentPPO(nn.Module):
             fentropy_loss / final_loss_steps,
         )
 
+    def save(self, path):
+        # self.cpu()
+        torch.save({
+                    'model_state_dict': self.state_dict(),
+                    'optimizer_state_dict': self.optimizer.state_dict(),
+                    }, path)
+        # self.to(self.device)
+
+    def load(self, path):
+        checkpoint = torch.load(path, map_location=self.device)
+        self.load_state_dict(checkpoint['model_state_dict'])
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
 def _t(l):
     return torch.cat([torch.FloatTensor(i) for i in l])
 
 
-def main(device="cuda", env_name="snake"):
+def main(device="cuda", env_name="snake", test=False, checkpoint_path=None):
     assert env_name in ['snake', 'doom_basic', 'doom_corridor', 'doom_way']
     recurrent = True
     recurrent_size = 1024 if recurrent else 0
-    wandb.init(project="snake-pytorch-ppo", tags=env_name)
+    if not test:
+        wandb.init(project="snake-pytorch-ppo", tags=env_name)
     num_envs = 8
-    num_steps = 64*8
     num_viz_train = 4
+    if test:
+        num_envs = 2
+        num_viz_train = 2
+    num_steps = 64*8
     if env_name == "snake":
         env_fac = lambda: gym.make("snakenv-v0", gs=20, main_gs=22, num_fruits=1)
     elif env_name == "doom_basic":
@@ -214,6 +230,9 @@ def main(device="cuda", env_name="snake"):
     elif env_name == "doom_corridor":
         model = VisualAgentPPO((3, s[2], s[3]), 7, device=device, recurrent=recurrent_size, smaller=True).to(device)
 
+    if checkpoint_path is not None:
+        model.load(checkpoint_path)
+
     idx = 0
     batch_num = 0
     episode_num = 0
@@ -237,16 +256,20 @@ def main(device="cuda", env_name="snake"):
                     r_states.append(recurrent_state.cpu())
                 dist, v, recurrent_state = model(torch.FloatTensor(m.state).to(device), recurrent_state.to(device))
                 idx += num_envs
-                acts_normal = dist.sample()
-                acts = acts_normal
+                if not test:
+                    acts = dist.sample()
+                else:
+                    acts = dist.logits.max(1).indices.view(-1)
                 ost, r, d, idicts = m.apply_actions(acts.tolist())
-                states.append(ost)
-                rewards.append(r)
-                dones.append(d)
-                values.append(v)
-                log_prob = dist.log_prob(acts)
-                log_probs.append(log_prob)
-                actions.append(acts)
+
+                if not test:
+                    states.append(ost)
+                    rewards.append(r)
+                    dones.append(d)
+                    values.append(v)
+                    log_prob = dist.log_prob(acts)
+                    log_probs.append(log_prob)
+                    actions.append(acts)
 
                 for i, dun in enumerate(d):
                     if dun:
@@ -255,22 +278,40 @@ def main(device="cuda", env_name="snake"):
                 if any(d):
                     episode_num += 1
                     scores.extend([idict["score"] for idict in idicts if "score" in idict])
-                    # wandb.log({"episode_score": max(scores)}, step=idx)
 
-            gae_ = compute_gae(
-                model(torch.FloatTensor(m.state).to(device), recurrent_state.to(device))[1].cpu(),
-                rewards,
-                dones,
-                [v.cpu() for v in values],
+            if not test:
+                gae_ = compute_gae(
+                    model(torch.FloatTensor(m.state).to(device), recurrent_state.to(device))[1].cpu(),
+                    rewards,
+                    dones,
+                    [v.cpu() for v in values],
+                )
+                gae = _t(gae_)
+                values = torch.cat(values)
+                log_probs = torch.cat(log_probs).unsqueeze(-1)
+                advantage = gae.to(device) - values
+                actions = torch.cat(actions).unsqueeze(-1)
+                states = _t(states)
+                if recurrent:
+                    r_states = torch.cat(r_states)
+
+            loss, actor_loss, critic_loss, entropy_loss = model.ppo_update(
+                8, min(num_envs*num_steps, 1024), states, actions, log_probs, gae, advantage, r_states
             )
-            gae = _t(gae_)
-            values = torch.cat(values)
-            log_probs = torch.cat(log_probs).unsqueeze(-1)
-            advantage = gae.to(device) - values
-            actions = torch.cat(actions).unsqueeze(-1)
-            states = _t(states)
-            if recurrent:
-                r_states = torch.cat(r_states)
+            batch_num += 1
+            score = 0 if not scores else max(scores)
+            wandb.log(
+                {
+                    "loss": loss,
+                    "actor_loss": actor_loss,
+                    "critic_loss": critic_loss,
+                    "entropy_loss": entropy_loss,
+                    "score": score,
+                    "steps": idx,
+                    "episodes": episode_num
+                },
+                step=batch_num,
+            )
 
         if os.path.exists("/tmp/debug_jari"):
             try:
@@ -278,24 +319,6 @@ def main(device="cuda", env_name="snake"):
             except Exception:
                 pass
             import ipdb; ipdb.set_trace()
-
-        loss, actor_loss, critic_loss, entropy_loss = model.ppo_update(
-            8, min(num_envs*num_steps, 1024), states, actions, log_probs, gae, advantage, r_states
-        )
-        batch_num += 1
-        score = 0 if not scores else max(scores)
-        wandb.log(
-            {
-                "loss": loss,
-                "actor_loss": actor_loss,
-                "critic_loss": critic_loss,
-                "entropy_loss": entropy_loss,
-                "score": score,
-                "steps": idx,
-                "episodes": episode_num
-            },
-            step=batch_num,
-        )
 
 
 if __name__ == "__main__":
