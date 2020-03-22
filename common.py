@@ -13,22 +13,26 @@ def permute_axes_and_prep_image(im, pytorch=False):
             return np.transpose(im, (2, 0, 1))
 
 class EnvManager:
-    def __init__(self, env_factory, num_envs, pytorch=False, num_viz_train=0, viz_test=False, test_delay=0.01):
+    def __init__(self, env_factory, num_envs, pytorch=False, num_viz_train=0, viz_test=False, test_delay=0.01, reward_mult=1.0, skip=1):
         self.envs = [env_factory() for _ in range(num_envs)]
         self.test_env = env_factory()
         self._p = lambda im: permute_axes_and_prep_image(im, pytorch)
+        self.reward_mult = reward_mult
         self.state = np.stack([self._p(env.reset()) for env in self.envs])
         self.num_viz_train = num_viz_train
+        self.skip = skip
         self.viz()
 
     def viz(self):
         for env in self.envs[:self.num_viz_train]:
-            env.render()
+            env.render(mode='automap')
 
     def apply_actions(self, actions):
-        next_state, rewards, dones_list, info_dicts = zip(*[env.step(a) for env, a in zip(self.envs, actions)])
+        for i in range(self.skip):
+            next_state, rewards, dones_list, info_dicts = zip(*[env.step(a) for env, a in zip(self.envs, actions)])
+            self.viz()
         next_state = np.stack([self._p(s) for s in next_state])
-        rewards = np.expand_dims(np.stack(rewards), -1)
+        rewards = np.expand_dims(np.stack(rewards), -1)*self.reward_mult
         dones = np.expand_dims(np.stack(dones_list), -1)
 
         out_state = self.state
@@ -37,12 +41,10 @@ class EnvManager:
             if dones_list[i]:
                 self.state[i] = self._p(env.reset())
 
-        self.viz()
-
         return out_state, rewards, dones, info_dicts
 
 
-def compute_gae(next_value, rewards, dones, values, gamma=0.998, lmbda=0.99):
+def compute_gae(next_value, rewards, dones, values, gamma=0.999, lmbda=0.98):
     masks = [1 - d for d in dones]
     values = values + [next_value]
     gae = 0

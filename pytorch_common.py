@@ -7,7 +7,9 @@ import torch.optim as optim
 from common import EnvManager, compute_gae
 import gym
 from snake_gym import SnakeEnv
+import vizdoomgym
 import wandb
+import argh
 
 
 def init(module, weight_init, bias_init, gain=1):
@@ -31,9 +33,9 @@ def ppo_iter(mini_batch_size, states, actions, log_probs, returns, advantage, r_
         ), out_rstates
 
 
-class SnakeModel(nn.Module):
+class VisualAgentPPO(nn.Module):
     def __init__(self, input_shape, num_actions, num_hidden=512, device="cuda", smaller=False, recurrent=1024):
-        super(SnakeModel, self).__init__()
+        super(VisualAgentPPO, self).__init__()
         init_ = lambda m: init(
             m,
             nn.init.orthogonal_,
@@ -43,7 +45,7 @@ class SnakeModel(nn.Module):
 
         if not smaller:
             self.convs = nn.Sequential(
-                init_(nn.Conv2d(1, 64, kernel_size=8, stride=4)),
+                init_(nn.Conv2d(input_shape[0], 64, kernel_size=8, stride=4)),
                 nn.ReLU(),
                 init_(nn.Conv2d(64, 128, kernel_size=4, stride=2)),
                 nn.ReLU(),
@@ -54,7 +56,7 @@ class SnakeModel(nn.Module):
             )
         else:
             self.convs = nn.Sequential(
-                init_(nn.Conv2d(1, 32, kernel_size=8, stride=4)),
+                init_(nn.Conv2d(input_shape[0], 32, kernel_size=8, stride=4)),
                 nn.ReLU(),
                 init_(nn.Conv2d(32, 64, kernel_size=4, stride=2)),
                 nn.ReLU(),
@@ -67,6 +69,7 @@ class SnakeModel(nn.Module):
         with torch.no_grad():
             x = torch.rand(input_shape).unsqueeze(0)
             x = self.convs(x)
+
 
         num_fc = x.view(1, -1).shape[1]
 
@@ -96,7 +99,7 @@ class SnakeModel(nn.Module):
             init_(nn.Linear(num_hidden, 1))
         )
 
-        self.optimizer = optim.Adam(self.parameters(), lr=0.00005)
+        self.optimizer = optim.Adam(self.parameters(), lr=0.0005)
         self.device = device
 
     def forward(self, x, hxs):  # hxs is size [Nbatch, 512], must be 0 at start of episode
@@ -158,7 +161,7 @@ class SnakeModel(nn.Module):
                 critic_loss = (return_ - value).pow(2).mean()
 
                 optimizer.zero_grad()
-                loss = 0.5 * critic_loss + actor_loss - 0.001 * entropy
+                loss = 0.5 * critic_loss + actor_loss - 0.1 * entropy
                 loss.backward()
                 optimizer.step()
                 final_loss += loss.detach().item()
@@ -179,16 +182,37 @@ def _t(l):
     return torch.cat([torch.FloatTensor(i) for i in l])
 
 
-def main(device="cuda"):
+def main(device="cuda", env_name="snake"):
+    assert env_name in ['snake', 'doom_basic', 'doom_corridor', 'doom_way']
     recurrent = True
     recurrent_size = 1024 if recurrent else 0
-    wandb.init(project="snake-pytorch-ppo")
-    env_fac = lambda: gym.make("snakenv-v0", gs=20, main_gs=22, num_fruits=1)
-    num_envs = 4
-    num_steps = 512
-    m = EnvManager(env_fac, num_envs, pytorch=True, num_viz_train=0)
-    s = m.state.shape[-1]
-    model = SnakeModel((1, s, s), 4, device=device, recurrent=recurrent_size, smaller=True).to(device)
+    wandb.init(project="snake-pytorch-ppo", tags=env_name)
+    num_envs = 8
+    num_steps = 64*8
+    num_viz_train = 4
+    if env_name == "snake":
+        env_fac = lambda: gym.make("snakenv-v0", gs=20, main_gs=22, num_fruits=1)
+    elif env_name == "doom_basic":
+        env_fac = lambda: gym.make("VizdoomBasic-v0")
+    elif env_name == "doom_corridor":
+        env_fac = lambda: gym.make("VizdoomCorridor-v0")
+    elif env_name == "doom_way":
+        env_fac = lambda: gym.make("VizdoomMyWayHome-v0")
+
+    reward_mult = 1.0 if env_name in ['snake', 'doom_way'] else 0.01
+    if env_name is 'doom_corridor':
+        reward_mult = 0.1
+    skip = 1 if env_name not in ['doom_corridor', 'doom_way'] else 4
+
+    m = EnvManager(env_fac, num_envs, pytorch=True, num_viz_train=num_viz_train, reward_mult=reward_mult, skip=skip)
+    s = m.state.shape
+
+    if env_name == "snake":
+        model = VisualAgentPPO((1, s[-1], s[-1]), 4, device=device, recurrent=recurrent_size, smaller=True).to(device)
+    elif env_name in ["doom_basic", "doom_way"]:
+        model = VisualAgentPPO((3, s[2], s[3]), 3, device=device, recurrent=recurrent_size, smaller=True).to(device)
+    elif env_name == "doom_corridor":
+        model = VisualAgentPPO((3, s[2], s[3]), 7, device=device, recurrent=recurrent_size, smaller=True).to(device)
 
     idx = 0
     batch_num = 0
@@ -214,14 +238,6 @@ def main(device="cuda"):
                 dist, v, recurrent_state = model(torch.FloatTensor(m.state).to(device), recurrent_state.to(device))
                 idx += num_envs
                 acts_normal = dist.sample()
-                # acts_exploit = dist.logits.max(1).indices
-                # acts = []
-                # for i in range(len(acts_exploit)):
-                #     if i % 2 == 0:
-                #         acts.append(acts_normal[i])
-                #     else:
-                #         acts.append(acts_exploit[i])
-                # acts = torch.FloatTensor(acts).to(device)
                 acts = acts_normal
                 ost, r, d, idicts = m.apply_actions(acts.tolist())
                 states.append(ost)
@@ -264,7 +280,7 @@ def main(device="cuda"):
             import ipdb; ipdb.set_trace()
 
         loss, actor_loss, critic_loss, entropy_loss = model.ppo_update(
-            2, min(num_envs*num_steps, 2048), states, actions, log_probs, gae, advantage, r_states
+            8, min(num_envs*num_steps, 1024), states, actions, log_probs, gae, advantage, r_states
         )
         batch_num += 1
         score = 0 if not scores else max(scores)
@@ -283,4 +299,5 @@ def main(device="cuda"):
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    argh.dispatch_command(main)
