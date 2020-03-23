@@ -161,7 +161,7 @@ class VisualAgentPPO(nn.Module):
                 critic_loss = (return_ - value).pow(2).mean()
 
                 optimizer.zero_grad()
-                loss = 0.5 * critic_loss + actor_loss - 0.1 * entropy
+                loss = 0.5 * critic_loss + actor_loss - 0.001 * entropy
                 loss.backward()
                 optimizer.step()
                 final_loss += loss.detach().item()
@@ -200,12 +200,12 @@ def main(device="cuda", env_name="snake", test=False, checkpoint_path=None):
     recurrent_size = 1024 if recurrent else 0
     if not test:
         wandb.init(project="snake-pytorch-ppo", tags=env_name)
-    num_envs = 8
-    num_viz_train = 4
+    num_envs = 16
+    num_viz_train = 8
     if test:
-        num_envs = 2
-        num_viz_train = 2
-    num_steps = 64*8
+        num_envs = 4
+        num_viz_train = 4
+    num_steps = 64
     if env_name == "snake":
         env_fac = lambda: gym.make("snakenv-v0", gs=20, main_gs=22, num_fruits=1)
     elif env_name == "doom_basic":
@@ -218,7 +218,7 @@ def main(device="cuda", env_name="snake", test=False, checkpoint_path=None):
     reward_mult = 1.0 if env_name in ['snake', 'doom_way'] else 0.01
     if env_name is 'doom_corridor':
         reward_mult = 0.1
-    skip = 1 if env_name not in ['doom_corridor', 'doom_way'] else 4
+    skip = 1 if env_name not in ['doom_corridor', 'doom_way'] else 2
 
     m = EnvManager(env_fac, num_envs, pytorch=True, num_viz_train=num_viz_train, reward_mult=reward_mult, skip=skip)
     s = m.state.shape
@@ -279,39 +279,39 @@ def main(device="cuda", env_name="snake", test=False, checkpoint_path=None):
                     episode_num += 1
                     scores.extend([idict["score"] for idict in idicts if "score" in idict])
 
-            if not test:
-                gae_ = compute_gae(
-                    model(torch.FloatTensor(m.state).to(device), recurrent_state.to(device))[1].cpu(),
-                    rewards,
-                    dones,
-                    [v.cpu() for v in values],
-                )
-                gae = _t(gae_)
-                values = torch.cat(values)
-                log_probs = torch.cat(log_probs).unsqueeze(-1)
-                advantage = gae.to(device) - values
-                actions = torch.cat(actions).unsqueeze(-1)
-                states = _t(states)
-                if recurrent:
-                    r_states = torch.cat(r_states)
+        if not test:
+            gae_ = compute_gae(
+                model(torch.FloatTensor(m.state).to(device), recurrent_state.to(device))[1].cpu(),
+                rewards,
+                dones,
+                [v.cpu() for v in values],
+            )
+            gae = _t(gae_)
+            values = torch.cat(values)
+            log_probs = torch.cat(log_probs).unsqueeze(-1)
+            advantage = gae.to(device) - values
+            actions = torch.cat(actions).unsqueeze(-1)
+            states = _t(states)
+            if recurrent:
+                r_states = torch.cat(r_states)
 
-                loss, actor_loss, critic_loss, entropy_loss = model.ppo_update(
-                    8, min(num_envs*num_steps, 1024), states, actions, log_probs, gae, advantage, r_states
-                )
-                batch_num += 1
-                score = 0 if not scores else max(scores)
-                wandb.log(
-                    {
-                        "loss": loss,
-                        "actor_loss": actor_loss,
-                        "critic_loss": critic_loss,
-                        "entropy_loss": entropy_loss,
-                        "score": score,
-                        "steps": idx,
-                        "episodes": episode_num
-                    },
-                    step=batch_num,
-                )
+            loss, actor_loss, critic_loss, entropy_loss = model.ppo_update(
+                8, min(num_envs*num_steps, 1024), states, actions, log_probs, gae, advantage, r_states
+            )
+            batch_num += 1
+            score = 0 if not scores else max(scores)
+            wandb.log(
+                {
+                    "loss": loss,
+                    "actor_loss": actor_loss,
+                    "critic_loss": critic_loss,
+                    "entropy_loss": entropy_loss,
+                    "score": score,
+                    "steps": idx,
+                    "episodes": episode_num
+                },
+                step=batch_num,
+            )
 
         if os.path.exists("/tmp/debug_jari"):
             try:
