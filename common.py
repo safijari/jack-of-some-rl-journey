@@ -36,12 +36,12 @@ class EnvManager:
         dones = np.expand_dims(np.stack(dones_list), -1)
 
         out_state = self.state
-        self.state = next_state
+        self.state = next_state.copy()
         for i, env in enumerate(self.envs):
             if dones_list[i]:
                 self.state[i] = self._p(env.reset())
 
-        return out_state, rewards, dones, info_dicts
+        return out_state, next_state, rewards, dones, info_dicts
 
 
 def compute_gae(next_value, rewards, dones, values, gamma=0.999, lmbda=0.98):
