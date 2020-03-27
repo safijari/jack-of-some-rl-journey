@@ -195,17 +195,17 @@ def _t(l):
 
 
 def main(device="cuda", env_name="snake", test=False, checkpoint_path=None):
-    assert env_name in ['snake', 'doom_basic', 'doom_corridor', 'doom_way']
+    assert env_name in ['snake', 'doom_basic', 'doom_corridor', 'doom_way', 'doom_deathmatch']
     recurrent = True
-    recurrent_size = 1024 if recurrent else 0
+    recurrent_size = 512 if recurrent else 0
     if not test:
         wandb.init(project="snake-pytorch-ppo", tags=env_name)
-    num_envs = 16
-    num_viz_train = 8
+    num_envs = 256
+    num_viz_train = 4
     if test:
         num_envs = 4
         num_viz_train = 4
-    num_steps = 64
+    num_steps = 8*2
     if env_name == "snake":
         env_fac = lambda: gym.make("snakenv-v0", gs=20, main_gs=22, num_fruits=1)
     elif env_name == "doom_basic":
@@ -214,11 +214,14 @@ def main(device="cuda", env_name="snake", test=False, checkpoint_path=None):
         env_fac = lambda: gym.make("VizdoomCorridor-v0")
     elif env_name == "doom_way":
         env_fac = lambda: gym.make("VizdoomMyWayHome-v0")
+    elif env_name == "doom_deathmatch":
+        env_fac = lambda: gym.make("VizdoomDeathmatch-v0")
 
-    reward_mult = 1.0 if env_name in ['snake', 'doom_way'] else 0.01
+    reward_mult = 1.0 if env_name in ['snake', 'doom_way', 'doom_deathmatch'] else 0.01
     if env_name is 'doom_corridor':
         reward_mult = 0.1
-    skip = 1 if env_name not in ['doom_corridor', 'doom_way'] else 2
+    skip = 1 if env_name not in ['doom_corridor', 'doom_way', 'doom_deathmatch'] else 4
+    skip = 4
 
     m = EnvManager(env_fac, num_envs, pytorch=True, num_viz_train=num_viz_train, reward_mult=reward_mult, skip=skip)
     s = m.state.shape
@@ -228,6 +231,8 @@ def main(device="cuda", env_name="snake", test=False, checkpoint_path=None):
     elif env_name in ["doom_basic", "doom_way"]:
         model = VisualAgentPPO((3, s[2], s[3]), 3, device=device, recurrent=recurrent_size, smaller=True).to(device)
     elif env_name == "doom_corridor":
+        model = VisualAgentPPO((3, s[2], s[3]), 7, device=device, recurrent=recurrent_size, smaller=True).to(device)
+    elif env_name == "doom_deathmatch":
         model = VisualAgentPPO((3, s[2], s[3]), 7, device=device, recurrent=recurrent_size, smaller=True).to(device)
 
     if checkpoint_path is not None:
@@ -296,7 +301,7 @@ def main(device="cuda", env_name="snake", test=False, checkpoint_path=None):
                 r_states = torch.cat(r_states)
 
             loss, actor_loss, critic_loss, entropy_loss = model.ppo_update(
-                8, min(num_envs*num_steps, 1024), states, actions, log_probs, gae, advantage, r_states
+                12, min(num_envs*num_steps, 1024), states, actions, log_probs, gae, advantage, r_states
             )
             batch_num += 1
             score = 0 if not scores else max(scores)

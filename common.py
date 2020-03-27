@@ -25,7 +25,7 @@ class EnvManager:
 
     def viz(self):
         for env in self.envs[:self.num_viz_train]:
-            env.render(mode='automap')
+            env.render()
 
     def apply_actions(self, actions):
         for i in range(self.skip):
