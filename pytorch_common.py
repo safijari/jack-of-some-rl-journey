@@ -33,6 +33,53 @@ def ppo_iter(mini_batch_size, states, actions, log_probs, returns, advantage, r_
         ), out_rstates
 
 
+class CuriosityTracker(nn.Module):
+    def __init__(self, input_shape, num_hidden=512, device="cuda"):
+        super(CuriosityTracker, self).__init__()
+        init_ = lambda m: init(
+            m,
+            nn.init.orthogonal_,
+            lambda x: nn.init.constant_(x, 0),
+            nn.init.calculate_gain("relu"),
+        )
+
+        self.convs = nn.Sequential(
+            init_(nn.Conv2d(input_shape[0], 32, kernel_size=8, stride=4)),
+            nn.ReLU(),
+            init_(nn.Conv2d(32, 64, kernel_size=4, stride=2)),
+            nn.ReLU(),
+            init_(nn.Conv2d(64, 64, kernel_size=4, stride=2)),
+            nn.ReLU(),
+            init_(nn.Conv2d(64, 64, kernel_size=3, stride=1)),
+            nn.ReLU(),
+        )
+
+        with torch.no_grad():
+            x = torch.rand(input_shape).unsqueeze(0)
+            x = self.convs(x)
+
+
+        num_fc = x.view(1, -1).shape[1]
+
+        init_ = lambda m: init(
+            m, nn.init.orthogonal_, lambda x: nn.init.constant_(x, 0)
+        )
+
+        self.head = nn.Sequential(
+            init_(nn.Linear(num_fc, num_hidden)),
+            nn.ReLU(),
+        )
+
+        self.optimizer = optim.Adam(self.parameters(), lr=0.0001)
+        self.device = device
+
+    def forward(self, x):  # hxs is size [Nbatch, 512], must be 0 at start of episode
+        latent_ = self.convs(x / 255)
+        latent = latent_.view(x.shape[0], -1)
+
+        return self.head(latent)
+
+
 class VisualAgentPPO(nn.Module):
     def __init__(self, input_shape, num_actions, num_hidden=512, device="cuda", smaller=False, recurrent=1024):
         super(VisualAgentPPO, self).__init__()
@@ -147,7 +194,7 @@ class VisualAgentPPO(nn.Module):
                 critic_loss = (return_ - value).pow(2).mean()
 
                 optimizer.zero_grad()
-                loss = 0.5 * critic_loss + actor_loss - 0.001 * entropy
+                loss = 0.5 * critic_loss + actor_loss - 0.01 * entropy
                 loss.backward()
                 optimizer.step()
                 final_loss += loss.detach().item()
