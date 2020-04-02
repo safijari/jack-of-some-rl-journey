@@ -1,6 +1,10 @@
 import numpy as np
+import time
 import torch
 from dataclasses import dataclass
+
+from concurrent.futures import ThreadPoolExecutor
+
 
 def permute_axes_and_prep_image(im, pytorch=False):
     assert len(im.shape) < 4
@@ -13,8 +17,19 @@ def permute_axes_and_prep_image(im, pytorch=False):
         else:
             return np.transpose(im, (2, 0, 1))
 
+
 class EnvManager:
-    def __init__(self, env_factory, num_envs, pytorch=False, num_viz_train=0, viz_test=False, test_delay=0.01, reward_mult=1.0, skip=1):
+    def __init__(
+        self,
+        env_factory,
+        num_envs,
+        pytorch=False,
+        num_viz_train=0,
+        viz_test=False,
+        test_delay=0.01,
+        reward_mult=1.0,
+        skip=1,
+    ):
         self.envs = [env_factory() for _ in range(num_envs)]
         self.test_env = env_factory()
         self._p = lambda im: permute_axes_and_prep_image(im, pytorch)
@@ -22,18 +37,26 @@ class EnvManager:
         self.state = np.stack([self._p(env.reset()) for env in self.envs])
         self.num_viz_train = num_viz_train
         self.skip = skip
+        self.ex = ThreadPoolExecutor(num_envs)
         self.viz()
 
     def viz(self):
-        for env in self.envs[:self.num_viz_train]:
+        for env in self.envs[: self.num_viz_train]:
             env.render()
+            # time.sleep(0.1)
 
     def apply_actions(self, actions):
         for i in range(self.skip):
-            next_state, rewards, dones_list, info_dicts = zip(*[env.step(a) for env, a in zip(self.envs, actions)])
+            # next_state, rewards, dones_list, info_dicts = zip(
+            #     *[env.step(a) for env, a in zip(self.envs, actions)]
+            # )
+            next_state, rewards, dones_list, info_dicts = zip(
+                *(self.ex.map(lambda x: x[0].step(x[1]), zip(self.envs, actions)))
+            )
+
             self.viz()
         next_state = np.stack([self._p(s) for s in next_state])
-        rewards = np.expand_dims(np.stack(rewards), -1)*self.reward_mult
+        rewards = np.expand_dims(np.stack(rewards), -1) * self.reward_mult
         dones = np.expand_dims(np.stack(dones_list), -1)
 
         out_state = self.state
@@ -51,7 +74,11 @@ def compute_gae(next_value, rewards, dones, values, gamma=0.999, lmbda=0.98):
     gae = 0
     returns = []
     for step in reversed(range(len(rewards))):
-        delta = rewards[step] + gamma * values[step + 1].detach().numpy() * masks[step] - values[step].detach().numpy()
+        delta = (
+            rewards[step]
+            + gamma * values[step + 1].detach().numpy() * masks[step]
+            - values[step].detach().numpy()
+        )
         gae = delta + gamma * lmbda * masks[step] * gae
         returns.append(gae + values[step].detach().numpy())
     return list(reversed(returns))
@@ -61,6 +88,7 @@ class RolloutStorage:
     """
     fixed sized storage for generating rollouts
     """
+
     def __init__(self, num_steps, num_envs, obs_shape, num_actions, recurrent_size):
         self.obs = torch.zeros(num_steps + 1, num_envs, *obs_shape)
         self.recurrent_states = torch.zeros(num_steps + 1, num_envs, recurrent_size)
@@ -75,7 +103,16 @@ class RolloutStorage:
         self.num_actions = num_actions
         self.step = 0
 
-    def insert(self, obs, recurrent_state, actions, action_log_probs, value_preds, rewards, masks):
+    def insert(
+        self,
+        obs,
+        recurrent_state,
+        actions,
+        action_log_probs,
+        value_preds,
+        rewards,
+        masks,
+    ):
         self.obs[self.step + 1].copy_(obs)
         self.recurrent_states[self.step + 1].copy_(recurrent_state)
         self.actions[self.step].copy_(actions)
@@ -95,7 +132,11 @@ class RolloutStorage:
         self.value_preds[-1] = next_value
         gae = 0
         for step in reversed(range(self.rewards.size(0))):
-            delta = self.rewards[step] + gamma*self.value_preds[step + 1] - self.value_preds[step]
+            delta = (
+                self.rewards[step]
+                + gamma * self.value_preds[step + 1]
+                - self.value_preds[step]
+            )
             gae = delta + gamma * lda * self.masks[step + 1] * gae
             self.returns[step] = gae + self.value_preds[step]
 
@@ -105,8 +146,8 @@ class RolloutStorage:
 
         def git(tensor, i, obs=False):
             if obs:
-                return tensor.view(-1, *tensor.size()[2:])[i:i+mini_batch_size]
-            return tensor.view(-1, tensor.size(-1))[i:i+mini_batch_size]
+                return tensor.view(-1, *tensor.size()[2:])[i : i + mini_batch_size]
+            return tensor.view(-1, tensor.size(-1))[i : i + mini_batch_size]
 
         for i in range(0, total, mini_batch_size):  # random?
             obs_batch = git(self.obs[:-1], i, True)
@@ -118,6 +159,10 @@ class RolloutStorage:
             old_action_log_probs_batch = git(self.action_log_probs, i)
 
             try:
-                yield obs_batch.cuda(), actions_batch.cuda(), old_action_log_probs_batch.cuda(), return_batch.cuda(), (return_batch-value_preds_batch).cuda(), recur_batch.cuda()
+                yield obs_batch.cuda(), actions_batch.cuda(), old_action_log_probs_batch.cuda(), return_batch.cuda(), (
+                    return_batch - value_preds_batch
+                ).cuda(), recur_batch.cuda()
             except Exception:
-                import ipdb; ipdb.set_trace()
+                import ipdb
+
+                ipdb.set_trace()

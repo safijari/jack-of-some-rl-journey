@@ -18,16 +18,30 @@ def init(module, weight_init, bias_init, gain=1):
     return module
 
 
-def ppo_iter(mini_batch_size, states, actions, log_probs, returns, advantage, r_states, device):
+def ppo_iter(
+    mini_batch_size, states, actions, log_probs, returns, advantage, r_states, device
+):
     batch_size = states.size(0)
     for i in range(batch_size // mini_batch_size):
-        out_rstates = torch.zeros((1,1)) if isinstance(r_states, list) else r_states[i*mini_batch_size:(i+1)*mini_batch_size, :].to(device)
-        yield states[i*mini_batch_size:(i+1)*mini_batch_size, :].to(device), actions[i*mini_batch_size:(i+1)*mini_batch_size, :].to(
+        out_rstates = (
+            torch.zeros((1, 1))
+            if isinstance(r_states, list)
+            else r_states[i * mini_batch_size : (i + 1) * mini_batch_size, :].to(device)
+        )
+        yield states[i * mini_batch_size : (i + 1) * mini_batch_size, :].to(
             device
-        ), log_probs[i*mini_batch_size:(i+1)*mini_batch_size, :].to(device), returns[i*mini_batch_size:(i+1)*mini_batch_size, :].to(
+        ), actions[i * mini_batch_size : (i + 1) * mini_batch_size, :].to(
+            device
+        ), log_probs[
+            i * mini_batch_size : (i + 1) * mini_batch_size, :
+        ].to(
+            device
+        ), returns[
+            i * mini_batch_size : (i + 1) * mini_batch_size, :
+        ].to(
             device
         ), advantage[
-            i*mini_batch_size:(i+1)*mini_batch_size, :
+            i * mini_batch_size : (i + 1) * mini_batch_size, :
         ].to(
             device
         ), out_rstates
@@ -58,17 +72,13 @@ class CuriosityTracker(nn.Module):
             x = torch.rand(input_shape).unsqueeze(0)
             x = self.convs(x)
 
-
         num_fc = x.view(1, -1).shape[1]
 
         init_ = lambda m: init(
             m, nn.init.orthogonal_, lambda x: nn.init.constant_(x, 0)
         )
 
-        self.head = nn.Sequential(
-            init_(nn.Linear(num_fc, num_hidden)),
-            nn.ReLU(),
-        )
+        self.head = nn.Sequential(init_(nn.Linear(num_fc, num_hidden)), nn.ReLU(),)
 
         self.optimizer = optim.Adam(self.parameters(), lr=0.0001)
         self.device = device
@@ -81,7 +91,15 @@ class CuriosityTracker(nn.Module):
 
 
 class VisualAgentPPO(nn.Module):
-    def __init__(self, input_shape, num_actions, num_hidden=512, device="cuda", smaller=False, recurrent=1024):
+    def __init__(
+        self,
+        input_shape,
+        num_actions,
+        num_hidden=512,
+        device="cuda",
+        smaller=False,
+        recurrent=1024,
+    ):
         super(VisualAgentPPO, self).__init__()
         init_ = lambda m: init(
             m,
@@ -117,16 +135,15 @@ class VisualAgentPPO(nn.Module):
             x = torch.rand(input_shape).unsqueeze(0)
             x = self.convs(x)
 
-
         num_fc = x.view(1, -1).shape[1]
 
         if recurrent:
             self._recurrent = recurrent
             self.gru = nn.GRU(num_fc, recurrent)
             for name, param in self.gru.named_parameters():
-                if 'bias' in name:
+                if "bias" in name:
                     nn.init.constant_(param, 0)
-                elif 'weight' in name:
+                elif "weight" in name:
                     nn.init.orthogonal_(param)
             num_fc = recurrent
 
@@ -143,13 +160,15 @@ class VisualAgentPPO(nn.Module):
         self.value = nn.Sequential(
             init_(nn.Linear(num_fc, num_hidden)),
             nn.ReLU(),
-            init_(nn.Linear(num_hidden, 1))
+            init_(nn.Linear(num_hidden, 1)),
         )
 
-        self.optimizer = optim.Adam(self.parameters(), lr=0.0005)
+        self.optimizer = optim.Adam(self.parameters(), lr=0.001)
         self.device = device
 
-    def forward(self, x, hxs):  # hxs is size [Nbatch, 512], must be 0 at start of episode
+    def forward(
+        self, x, hxs
+    ):  # hxs is size [Nbatch, 512], must be 0 at start of episode
         latent_ = self.convs(x / 255)
         latent = latent_.view(x.shape[0], -1)
 
@@ -162,14 +181,14 @@ class VisualAgentPPO(nn.Module):
         policy = self.policy(latent)
         value = self.value(latent)
 
-        return torch.distributions.categorical.Categorical(logits=policy), value, rnn_hxs
+        return (
+            torch.distributions.categorical.Categorical(logits=policy),
+            value,
+            rnn_hxs,
+        )
 
     def ppo_update_generator(
-            self,
-            generator,
-            mini_batch_size,
-            ppo_epochs,
-            clip_param=0.2,
+        self, generator, mini_batch_size, ppo_epochs, clip_param=0.2,
     ):
         model = self
         optimizer = self.optimizer
@@ -179,7 +198,9 @@ class VisualAgentPPO(nn.Module):
         fentropy_loss = 0
         final_loss_steps = 0
         for ii in tqdm(range(ppo_epochs)):
-            for state, action, old_log_probs, return_, advantage, r_state in generator(mini_batch_size):
+            for state, action, old_log_probs, return_, advantage, r_state in generator(
+                mini_batch_size
+            ):
                 dist, value, _ = model(state, r_state)
                 entropy = dist.entropy().mean()
                 new_log_probs = dist.log_prob(action.view(-1)).unsqueeze(1)
@@ -272,16 +293,20 @@ class VisualAgentPPO(nn.Module):
 
     def save(self, path):
         # self.cpu()
-        torch.save({
-                    'model_state_dict': self.state_dict(),
-                    'optimizer_state_dict': self.optimizer.state_dict(),
-                    }, path)
+        torch.save(
+            {
+                "model_state_dict": self.state_dict(),
+                "optimizer_state_dict": self.optimizer.state_dict(),
+            },
+            path,
+        )
         # self.to(self.device)
 
     def load(self, path):
         checkpoint = torch.load(path, map_location=self.device)
-        self.load_state_dict(checkpoint['model_state_dict'])
-        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        self.load_state_dict(checkpoint["model_state_dict"])
+        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+
 
 def _t(l, fl=True):
     if fl:

@@ -14,17 +14,24 @@ from pytorch_common import _t, VisualAgentPPO, CuriosityTracker
 
 
 def main(device="cuda", env_name="snake", test=False, checkpoint_path=None):
-    assert env_name in ['snake', 'doom_basic', 'doom_corridor', 'doom_way', 'doom_deathmatch', 'doom_line']
+    assert env_name in [
+        "snake",
+        "doom_basic",
+        "doom_corridor",
+        "doom_way",
+        "doom_deathmatch",
+        "doom_line",
+    ]
     recurrent = True
     recurrent_size = 256 if recurrent else 0
     if not test:
         wandb.init(project="snake-pytorch-ppo", tags=env_name)
-    num_envs = 16*4
-    num_viz_train = 4
+    num_envs = 16 * 4
+    num_viz_train = 2
     if test:
         num_envs = 4
-        num_viz_train = 4
-    num_steps = 8*2
+        num_viz_train = 2
+    num_steps = 8 * 2
     if env_name == "snake":
         env_fac = lambda: gym.make("snakenv-v0", gs=20, main_gs=22, num_fruits=1)
     elif env_name == "doom_basic":
@@ -38,25 +45,46 @@ def main(device="cuda", env_name="snake", test=False, checkpoint_path=None):
     elif env_name == "doom_line":
         env_fac = lambda: gym.make("VizdoomDefendLine-v0")
 
-    reward_mult = 1.0 if env_name in ['snake', 'doom_way', 'doom_deathmatch', 'doom_line'] else 0.01
-    if env_name is 'doom_corridor':
+    reward_mult = (
+        1.0
+        if env_name in ["snake", "doom_way", "doom_deathmatch", "doom_line"]
+        else 0.01
+    )
+    if env_name is "doom_corridor":
         reward_mult = 0.1
-    skip = 1 if env_name not in ['doom_corridor', 'doom_way', 'doom_deathmatch'] else 4
-    skip = 4
+    skip = 1 if env_name not in ["doom_corridor", "doom_way", "doom_deathmatch"] else 4
+    skip = 1
 
-    m = EnvManager(env_fac, num_envs, pytorch=True, num_viz_train=num_viz_train, reward_mult=reward_mult, skip=skip)
+    m = EnvManager(
+        env_fac,
+        num_envs,
+        pytorch=True,
+        num_viz_train=num_viz_train,
+        reward_mult=reward_mult,
+        skip=skip,
+    )
     s = m.state.shape
 
     if env_name == "snake":
-        model = VisualAgentPPO((1, s[-1], s[-1]), 4, device=device, recurrent=recurrent_size, smaller=True).to(device)
+        model = VisualAgentPPO(
+            (1, s[-1], s[-1]), 4, device=device, recurrent=recurrent_size, smaller=True
+        ).to(device)
     elif env_name in ["doom_basic", "doom_way"]:
-        model = VisualAgentPPO((3, s[2], s[3]), 3, device=device, recurrent=recurrent_size, smaller=True).to(device)
+        model = VisualAgentPPO(
+            (3, s[2], s[3]), 3, device=device, recurrent=recurrent_size, smaller=True
+        ).to(device)
     elif env_name == "doom_corridor":
-        model = VisualAgentPPO((3, s[2], s[3]), 7, device=device, recurrent=recurrent_size, smaller=True).to(device)
+        model = VisualAgentPPO(
+            (3, s[2], s[3]), 7, device=device, recurrent=recurrent_size, smaller=True
+        ).to(device)
     elif env_name == "doom_deathmatch":
-        model = VisualAgentPPO((3, s[2], s[3]), 7, device=device, recurrent=recurrent_size, smaller=True).to(device)
+        model = VisualAgentPPO(
+            (3, s[2], s[3]), 7, device=device, recurrent=recurrent_size, smaller=True
+        ).to(device)
     elif env_name == "doom_line":
-        model = VisualAgentPPO((3, s[2], s[3]), 3, device=device, recurrent=recurrent_size, smaller=True).to(device)
+        model = VisualAgentPPO(
+            (3, s[2], s[3]), 3, device=device, recurrent=recurrent_size, smaller=True
+        ).to(device)
 
     curiosity_target = CuriosityTracker((3, s[2], s[3])).to(device)
     curiosity_model = CuriosityTracker((3, s[2], s[3])).to(device)
@@ -75,7 +103,7 @@ def main(device="cuda", env_name="snake", test=False, checkpoint_path=None):
     while True:
         states = []
         state_next_state = []
-        r_states  = []
+        r_states = []
         values = []
         rewards = []
         dones = []
@@ -88,7 +116,9 @@ def main(device="cuda", env_name="snake", test=False, checkpoint_path=None):
             for i in range(num_steps):
                 if recurrent:
                     r_states.append(recurrent_state.cpu())
-                dist, v, recurrent_state = model(torch.FloatTensor(m.state).to(device), recurrent_state.to(device))
+                dist, v, recurrent_state = model(
+                    torch.FloatTensor(m.state).to(device), recurrent_state.to(device)
+                )
                 idx += num_envs
                 if not test:
                     acts = dist.sample()
@@ -97,9 +127,17 @@ def main(device="cuda", env_name="snake", test=False, checkpoint_path=None):
                 ost, r, d, idicts = m.apply_actions(acts.tolist())
 
                 curiosity_output = curiosity_model(torch.FloatTensor(ost).to(device))
-                curiosity_target_output = curiosity_target(torch.FloatTensor(ost).to(device))
+                curiosity_target_output = curiosity_target(
+                    torch.FloatTensor(ost).to(device)
+                )
 
-                intrinsic_reward = (curiosity_output - curiosity_target_output).mean(1).unsqueeze(1).cpu().numpy()
+                intrinsic_reward = (
+                    (curiosity_output - curiosity_target_output)
+                    .mean(1)
+                    .unsqueeze(1)
+                    .cpu()
+                    .numpy()
+                )
 
                 if not test:
                     for i, (st, dn) in enumerate(zip(ost, d)):
@@ -120,11 +158,15 @@ def main(device="cuda", env_name="snake", test=False, checkpoint_path=None):
 
                 if any(d):
                     episode_num += 1
-                    scores.extend([idict["score"] for idict in idicts if "score" in idict])
+                    scores.extend(
+                        [idict["score"] for idict in idicts if "score" in idict]
+                    )
 
         if not test:
             gae_ = compute_gae(
-                model(torch.FloatTensor(m.state).to(device), recurrent_state.to(device))[1].cpu(),
+                model(
+                    torch.FloatTensor(m.state).to(device), recurrent_state.to(device)
+                )[1].cpu(),
                 rewards,
                 dones,
                 [v.cpu() for v in values],
@@ -139,7 +181,14 @@ def main(device="cuda", env_name="snake", test=False, checkpoint_path=None):
                 r_states = torch.cat(r_states)
 
             loss, actor_loss, critic_loss, entropy_loss = model.ppo_update(
-                4, min(num_envs*num_steps, 1024), states, actions, log_probs, gae, advantage, r_states
+                4,
+                min(num_envs * num_steps, 1024),
+                states,
+                actions,
+                log_probs,
+                gae,
+                advantage,
+                r_states,
             )
 
             curiosity_model.optimizer.zero_grad()
@@ -160,7 +209,7 @@ def main(device="cuda", env_name="snake", test=False, checkpoint_path=None):
                     "critic_loss": critic_loss,
                     "entropy_loss": entropy_loss,
                     "steps": idx,
-                    "episodes": episode_num
+                    "episodes": episode_num,
                 },
                 step=batch_num,
             )
@@ -170,7 +219,9 @@ def main(device="cuda", env_name="snake", test=False, checkpoint_path=None):
                 os.remove("/tmp/debug_jari")
             except Exception:
                 pass
-            import ipdb; ipdb.set_trace()
+            import ipdb
+
+            ipdb.set_trace()
 
 
 if __name__ == "__main__":
